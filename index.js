@@ -5,7 +5,6 @@ const OpenAI = require("openai");
 const cron = require("node-cron");
 
 const app = express();
-app.use(express.json());
 
 // --- LINE SDK設定 ---
 const config = {
