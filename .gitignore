@@ -1,0 +1,14 @@
+# Node.js が作る大量のモジュールはアップしない
+node_modules
+
+# 環境変数ファイル（キーやパスワードが入っている）
+.env
+
+# ログファイル類
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OSごとの不要ファイル
+.DS_Store
+Thumbs.db
