@@ -153,7 +153,6 @@ const schedules = [
   { cron: "0 15 * * *", text: "【間食】ナッツ＋ストレッチ。" },
   { cron: "0 19 * * *", text: "【夕食】予定通りの夕食をとれ。" },
   { cron: "0 23 * * *", text: "【就寝前】ヨーグルト＋プロテイン。23時電源OFF。" },
-  { cron: "* * * * *", text: "テスト用" },
 ];
 
 for (const s of schedules) {
