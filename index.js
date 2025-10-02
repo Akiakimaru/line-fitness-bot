@@ -5,31 +5,62 @@ const { GoogleSpreadsheet } = require("google-spreadsheet");
 const { JWT } = require("google-auth-library");
 const cron = require("node-cron");
 
-const app = express();
+const app = express(); // ← webhook前に body-parser を付けない
 
-// === LINE SDK 設定 ===
+/* ========= LINE ========= */
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 const client = new line.Client(config);
 
-// === Google Sheets 認証 ===
-const serviceAccountAuth = new JWT({
-  email: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON).client_email,
-  key: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON).private_key,
+/* ========= Google Sheets (v5) ========= */
+const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+const jwt = new JWT({
+  email: serviceAccount.client_email,
+  key: serviceAccount.private_key,
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
-const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, serviceAccountAuth);
+const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, jwt);
 
-// === ユーザー保持（1人用）===
+/* ========= Helpers: JSTで週/曜日計算 ========= */
+const TZ = "Asia/Tokyo";
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// 現在(JST)のDateオブジェクト（内部はUTCだが「+9h」シフトした瞬間時刻）
+function nowJST() {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000);
+}
+
+// "YYYY-MM-DD" を JST の 00:00 に固定して Date を作る
+function parseYMDAsJST(ymd) {
+  // 例: "2025-09-29T00:00:00+09:00" をパース
+  return new Date(`${ymd}T00:00:00+09:00`);
+}
+
+// JST基準で week/day を返す
+function getWeekAndDayJST() {
+  const start = parseYMDAsJST(process.env.START_DATE);
+  const now = nowJST();
+  const diffDays = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+  const week = Math.max(1, Math.floor(diffDays / 7) + 1);
+  // JSTにずらしたDateに対して getUTCDay() を使うとJSTの曜日が取れる
+  const day = DAYS[now.getUTCDay()];
+  return { week, day, jstISO: now.toISOString() };
+}
+
+/* ========= 状態 ========= */
 let LAST_USER_ID = null;
 
-// === デバッグ用エンドポイント ===
+/* ========= Debug Endpoints ========= */
 app.get("/", (_req, res) => res.send("LINE Fitness Bot OK"));
-app.get("/whoami", (_req, res) => res.json({ userIdSet: !!LAST_USER_ID }));
-
-// デバッグ: シート全体を確認
+app.get("/whoami", (_req, res) =>
+  res.json({ userIdSet: !!LAST_USER_ID, lastUserId: LAST_USER_ID })
+);
+app.get("/debug-week", (_req, res) => {
+  const info = getWeekAndDayJST();
+  res.json({ START_DATE: process.env.START_DATE, ...info });
+});
 app.get("/debug-scan", async (_req, res) => {
   try {
     await doc.loadInfo();
@@ -38,63 +69,62 @@ app.get("/debug-scan", async (_req, res) => {
     res.json({
       headers: sheet.headerValues,
       count: rows.length,
-      sample: rows.slice(0, 5).map(r => r._rawData),
+      sample: rows.slice(0, 5).map((r) => r._rawData),
     });
   } catch (e) {
-    res.json({ error: e.toString() });
+    res.status(500).json({ error: String(e) });
   }
 });
 
-// === 今日のメニュー取得 ===
+/* ========= 今日のメニュー取得（JST基準） ========= */
 async function getTodayMenu() {
   await doc.loadInfo();
   const sheet = doc.sheetsByTitle["MealPlan"];
+  if (!sheet) return "エラー: MealPlan シートが見つかりません。";
   const rows = await sheet.getRows();
 
-  // START_DATEから週と曜日を算出
-  const START_DATE = new Date(process.env.START_DATE);
-  const now = new Date();
-  const diffDays = Math.floor((now - START_DATE) / (1000 * 60 * 60 * 24));
-  const week = Math.floor(diffDays / 7) + 1;
+  const { week, day } = getWeekAndDayJST();
 
-  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const day = days[now.getDay()];
-
-  // 行を抽出
+  // 文字揺れを吸収（trim & lower）
   const todayRows = rows.filter(
     (r) =>
-      String(r.Week).trim() === String(week) &&
-      r.Day.trim().toLowerCase() === day.toLowerCase()
+      String(r.Week ?? "").trim() === String(week) &&
+      String(r.Day ?? "").trim().toLowerCase() === day.toLowerCase()
   );
 
   if (todayRows.length === 0) {
     return `今日のメニューは未設定です。\n（Week${week} ${day})`;
   }
 
-  // 食事とトレーニングを分類
-  const meals = todayRows.filter((r) => r.Kind === "Meal");
-  const trainings = todayRows.filter((r) => r.Kind === "Training");
+  const meals = todayRows.filter((r) => String(r.Kind).trim() === "Meal");
+  const trainings = todayRows.filter((r) => String(r.Kind).trim() === "Training");
 
   let text = `【今日のメニュー】(Week${week} ${day})\n\n🍽 食事\n`;
-  meals.forEach((m) => {
-    text += `- ${m.Slot}: ${m.Text} （${m.Calories}kcal, P${m.P} F${m.F} C${m.C}）\n  👉 ${m.Tips}\n`;
-  });
+  for (const m of meals) {
+    const cal = String(m.Calories ?? "").trim();
+    const P = String(m.P ?? "").trim();
+    const F = String(m.F ?? "").trim();
+    const C = String(m.C ?? "").trim();
+    const tips = (m.Tips && String(m.Tips).trim()) || "-";
+    text += `- ${m.Slot}: ${m.Text} （${cal}kcal, P${P} F${F} C${C}）\n  👉 ${tips}\n`;
+  }
 
-  if (trainings.length > 0) {
+  if (trainings.length) {
     text += `\n💪 トレーニング\n`;
-    trainings.forEach((t) => {
-      text += `- ${t.Slot}: ${t.Text}\n  👉 ${t.Tips}\n`;
-    });
+    for (const t of trainings) {
+      const tips = (t.Tips && String(t.Tips).trim()) || "-";
+      text += `- ${t.Slot}: ${t.Text}\n  👉 ${tips}\n`;
+    }
   }
 
   return text;
 }
 
-// === LINE Webhook ===
-// 注意: express.json() をここに適用しない！
+/* ========= LINE Webhook ========= */
+// 署名検証の前に body-parser を入れないこと！
 app.post("/webhook", line.middleware(config), async (req, res) => {
   try {
-    await Promise.all(req.body.events.map(handleEvent));
+    await Promise.all((req.body.events || []).map(handleEvent));
     res.sendStatus(200);
   } catch (e) {
     console.error("Webhook error", e);
@@ -102,43 +132,48 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
   }
 });
 
-// === イベント処理 ===
 async function handleEvent(e) {
-  if (e.type !== "message" || e.message.type !== "text") return;
-  if (e.source?.userId) LAST_USER_ID = e.source.userId;
+  if (e?.source?.userId) LAST_USER_ID = e.source.userId;
+  if (e.type !== "message" || e.message?.type !== "text") return;
 
-  const msg = e.message.text.trim();
+  const msg = (e.message.text || "").trim();
 
   if (msg.includes("今日のメニュー")) {
     const menu = await getTodayMenu();
     return client.replyMessage(e.replyToken, { type: "text", text: menu });
   }
 
-  // Quick Reply
   return client.replyMessage(e.replyToken, {
     type: "text",
-    text: "何を知りたいですか？",
+    text: "コマンドを選んでください。",
     quickReply: {
       items: [
         { type: "action", action: { type: "message", label: "今日のメニュー", text: "今日のメニュー" } },
-        { type: "action", action: { type: "message", label: "今週メニュー", text: "今週メニュー" } },
+        { type: "action", action: { type: "message", label: "デバッグ(週/曜日)", text: "debug week" } },
       ],
     },
   });
 }
 
-// === Cronリマインド（例: 毎日12時に昼食をPush）===
-cron.schedule("0 12 * * *", async () => {
-  console.log("[cron fired] Lunch Reminder");
-  if (!LAST_USER_ID) return;
-  const menu = await getTodayMenu();
-  await client.pushMessage(LAST_USER_ID, { type: "text", text: "【昼リマインド】\n" + menu });
-}, { timezone: "Asia/Tokyo" });
+/* ========= CRON（例：毎日12:00に昼Push） ========= */
+cron.schedule(
+  "0 12 * * *",
+  async () => {
+    console.log("[cron fired] Lunch Reminder (JST)");
+    if (!LAST_USER_ID) return;
+    const menu = await getTodayMenu();
+    await client.pushMessage(LAST_USER_ID, {
+      type: "text",
+      text: "【昼リマインド】\n" + menu,
+    });
+  },
+  { timezone: TZ }
+);
 
-// === Webhook以外のエンドポイント用に express.json() を追加 ===
+/* ========= webhook 以外のルート用に JSON パーサを後ろで有効化 ========= */
 app.use(express.json());
 
-// === サーバー起動 ===
+/* ========= 起動 ========= */
 app.listen(process.env.PORT || 3000, () => {
   console.log("Server running");
 });
