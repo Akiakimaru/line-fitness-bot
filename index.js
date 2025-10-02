@@ -362,3 +362,13 @@ cron.schedule("0 0 1 * *", async () => {
 
 /* ========= 起動 ========= */
 app.listen(process.env.PORT || 3000, () => console.log("Server OK"));
+
+app.get("/diag-headers", async (_req, res) => {
+  try {
+    const { sheet } = await getSheet("MealPlan");
+    await sheet.loadHeaderRow();
+    res.json({ headers: sheet.headerValues });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
