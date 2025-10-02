@@ -1,9 +1,9 @@
-// index.js  （強耐性版・デバッグ付き）
+// index.js  （ヘッダ強制ロード版 + 追加デバッグ）
 // - LINE署名検証OK（express.json()は使わない）
 // - Google Sheets v5（google-spreadsheet + google-auth-library JWT）
 // - MealPlan 参照/自動生成/アーカイブ
-// - 週/曜日のJST判定・全角数字/余計な空白に強い
-// - デバッグ: /diag-sheets /debug-week /debug-today /debug-scan
+// - JST判定・全角数字/余白に強い
+// - デバッグ: /diag-sheets /diag-headers /debug-week /debug-today /debug-scan
 
 require("dotenv").config();
 const express = require("express");
@@ -13,7 +13,7 @@ const { JWT } = require("google-auth-library");
 const OpenAI = require("openai");
 const cron = require("node-cron");
 
-const app = express(); // ← 署名検証のために body パーサは付けない
+const app = express(); // ボディパーサ無し（LINE署名検証のため）
 
 /* ========= LINE ========= */
 const lineConfig = {
@@ -36,7 +36,7 @@ function newDoc() {
   return new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
 }
 
-/** MealPlan を取得（無ければ作成） */
+/** MealPlan を取得（無ければ作成）+ ヘッダー強制ロード */
 async function getSheet(sheetName = "MealPlan") {
   const doc = newDoc();
   await doc.loadInfo();
@@ -47,6 +47,7 @@ async function getSheet(sheetName = "MealPlan") {
       headerValues: ["Week", "Day", "Kind", "Slot", "Text", "Calories", "P", "F", "C", "Tips"],
     });
   }
+  await sheet.loadHeaderRow(); // ★重要：このインスタンスでヘッダを確実にロード
   return { doc, sheet };
 }
 
@@ -65,7 +66,7 @@ const normDay = (v) => DAY_ALIASES[String(v ?? "").trim()] ?? String(v ?? "").tr
 // JSTの「今」
 const nowJST = () => new Date(Date.now() + 9 * 60 * 60 * 1000);
 
-// 全角→半角数字／数字抽出→整数化（Weekなどに使用）
+// 全角→半角数字／数字抽出→整数化（Weekなど）
 const toHalfWidthNum = (v) =>
   String(v ?? "").replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
 const toIntStrict = (v) => {
@@ -73,7 +74,7 @@ const toIntStrict = (v) => {
   return s ? parseInt(s, 10) : NaN;
 };
 
-// 数値列（kcal/PFC用）も強化しておく
+// 数値列（kcal/PFC）
 const toNum = (v) => {
   const s = toHalfWidthNum(v).replace(/[^\d.-]/g, "");
   const n = Number(s);
@@ -84,7 +85,7 @@ function getCurrentWeek() {
   const start = new Date(process.env.START_DATE); // 例: 2025-09-29（月）
   const now = nowJST();
   const diffWeeks = Math.floor((now - start) / (1000 * 60 * 60 * 24 * 7));
-  return Math.max(1, diffWeeks + 1); // 週0を防止
+  return Math.max(1, diffWeeks + 1); // 週0防止
 }
 function getTodayKey() {
   const week = getCurrentWeek();
@@ -96,11 +97,14 @@ function getTodayKey() {
 async function getTodayRows() {
   const { week, day } = getTodayKey();
   const { sheet } = await getSheet("MealPlan");
+  // 念押し：この関数内でもロード（冪等）
+  await sheet.loadHeaderRow();
+
   const rows = await sheet.getRows();
   const today = normDay(day);
 
   return rows.filter((r) => {
-    const w = toIntStrict(r.Week);   // ← 強耐性
+    const w = toIntStrict(r.Week);
     const d = normDay(r.Day);
     return w === week && d === today;
   });
@@ -175,6 +179,7 @@ CSVで出力（ヘッダ必須）: Day,Kind,Slot,Text,Calories,P,F,C,Tips
   }
 
   const { sheet } = await getSheet("MealPlan");
+  await sheet.loadHeaderRow();
   const existing = await sheet.getRows();
 
   for (const line of lines.slice(1)) {
@@ -205,6 +210,7 @@ CSVで出力（ヘッダ必須）: Day,Kind,Slot,Text,Calories,P,F,C,Tips
 /* ========= 月初アーカイブ（4週より古いデータ） ========= */
 async function archiveOldWeeks() {
   const { doc, sheet } = await getSheet("MealPlan");
+  await sheet.loadHeaderRow();
   const rows = await sheet.getRows();
 
   const current = getCurrentWeek();
@@ -315,9 +321,10 @@ app.get("/debug-today", async (_req, res) => {
   try {
     const { week, day } = getTodayKey();
     const { sheet } = await getSheet("MealPlan");
+    await sheet.loadHeaderRow();
     const rows = await sheet.getRows();
     const sample = rows
-      .filter((r) => toIntStrict(r.Week) === week) // ← 強耐性
+      .filter((r) => toIntStrict(r.Week) === week)
       .map((r) => ({ Week: r.Week, Day: r.Day, Kind: r.Kind, Slot: r.Slot }))
       .slice(0, 30);
     res.json({ START_DATE: process.env.START_DATE, week, day, jstISO: nowJST().toISOString(), sample });
@@ -329,6 +336,7 @@ app.get("/debug-scan", async (_req, res) => {
   try {
     const { week, day } = getTodayKey();
     const { sheet } = await getSheet("MealPlan");
+    await sheet.loadHeaderRow();
     const rows = await sheet.getRows();
 
     const dump = rows.slice(0, 60).map((r) => ({
@@ -338,9 +346,10 @@ app.get("/debug-scan", async (_req, res) => {
       normDay: normDay(r.Day),
       kind: r.Kind,
       slot: r.Slot,
+      rawData: r._rawData, // 1行まるごと
     }));
 
-    res.json({ target: { week, day }, dump });
+    res.json({ headers: sheet.headerValues, target: { week, day }, count: rows.length, dump });
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
@@ -386,40 +395,35 @@ app.post("/webhook", line.middleware(lineConfig), async (req, res) => {
 });
 
 /* ========= CRON（JST） ========= */
-cron.schedule("50 5 * * *", () => pushSlot("起床", "【起床】水500ml＋EAA。朝食までに体を起こせ。"), { timezone: TZ });
-cron.schedule("0 6 * * *", () => pushSlot("ジム前", "【ジム前】動的ストレッチ。関節を温めろ。"), { timezone: TZ });
-cron.schedule("30 7 * * *", () => pushSlot("ジム後", "【ジム後】プロテイン摂れ。朝食は計画どおり。"), { timezone: TZ });
-cron.schedule("0 12 * * *", () => pushSlot("昼食", "【昼食】予定どおり。食後20分歩け。"), { timezone: TZ });
-cron.schedule("0 15 * * *", () => pushSlot("間食", "【間食】プロテイン＋素焼きナッツ一握り。ストレッチ2分。"), { timezone: TZ });
-cron.schedule("0 19 * * *", () => pushSlot("夕食", "【夕食】計画どおり。糖質は控えめに。"), { timezone: TZ });
-cron.schedule("0 23 * * *", () => pushSlot("就寝前", "【就寝前】ヨーグルト＋プロテイン。23時は電源OFF。"), { timezone: TZ });
+const push = (cronExp, slot, fb) =>
+  cron.schedule(cronExp, () => pushSlot(slot, fb), { timezone: TZ });
+
+push("50 5 * * *", "起床", "【起床】水500ml＋EAA。朝食までに体を起こせ。");
+push("0 6 * * *", "ジム前", "【ジム前】動的ストレッチ。関節を温めろ。");
+push("30 7 * * *", "ジム後", "【ジム後】プロテイン摂れ。朝食は計画どおり。");
+push("0 12 * * *", "昼食", "【昼食】予定どおり。食後20分歩け。");
+push("0 15 * * *", "間食", "【間食】プロテイン＋素焼きナッツ一握り。ストレッチ2分。");
+push("0 19 * * *", "夕食", "【夕食】計画どおり。糖質は控えめに。");
+push("0 23 * * *", "就寝前", "【就寝前】ヨーグルト＋プロテイン。23時は電源OFF。");
 
 // 週末（日曜20:00）: 来週メニュー自動生成
-cron.schedule(
-  "0 20 * * 0",
-  async () => {
-    try {
-      const msg = await generateNextWeekMenu();
-      if (LAST_USER_ID) await client.pushMessage(LAST_USER_ID, { type: "text", text: msg });
-    } catch (e) {
-      console.error("[cron nextweek] error", e);
-    }
-  },
-  { timezone: TZ }
-);
+cron.schedule("0 20 * * 0", async () => {
+  try {
+    const msg = await generateNextWeekMenu();
+    if (LAST_USER_ID) await client.pushMessage(LAST_USER_ID, { type: "text", text: msg });
+  } catch (e) {
+    console.error("[cron nextweek] error", e);
+  }
+}, { timezone: TZ });
 
 // 月初（1日0:00）: アーカイブ
-cron.schedule(
-  "0 0 1 * *",
-  async () => {
-    try {
-      await archiveOldWeeks();
-    } catch (e) {
-      console.error("[cron archive] error", e);
-    }
-  },
-  { timezone: TZ }
-);
+cron.schedule("0 0 1 * *", async () => {
+  try {
+    await archiveOldWeeks();
+  } catch (e) {
+    console.error("[cron archive] error", e);
+  }
+}, { timezone: TZ });
 
 /* ========= 起動 ========= */
 app.listen(process.env.PORT || 3000, () => console.log("Server OK"));
