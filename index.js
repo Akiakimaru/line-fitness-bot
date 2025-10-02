@@ -1,187 +1,116 @@
-// ==============================
-// index.js  — 完成版
-// ==============================
 require("dotenv").config();
 const express = require("express");
 const line = require("@line/bot-sdk");
 const OpenAI = require("openai");
 const cron = require("node-cron");
 const { GoogleSpreadsheet } = require("google-spreadsheet");
-const fs = require("fs");
-const path = require("path");
 
 const app = express();
-// LINE署名検証のため、独自bodyParserは使わない
 app.use(express.json());
 
-// ------------------------------
-// 環境変数
-// ------------------------------
-const {
-  LINE_CHANNEL_ACCESS_TOKEN,
-  LINE_CHANNEL_SECRET,
-  OPENAI_API_KEY,
-  GOOGLE_SHEET_ID, // 例: https://docs.google.com/spreadsheets/d/<これ>/edit の <これ>
-  GOOGLE_SERVICE_ACCOUNT_JSON, // 生JSON
-  GOOGLE_SERVICE_ACCOUNT_B64,  // Base64（JSONの代替）
-  DATA_DIR = "/data",
-  PORT = 3000,
-} = process.env;
-
-// ------------------------------
-// LINE 初期化
-// ------------------------------
+// ===== LINE =====
 const lineConfig = {
-  channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: LINE_CHANNEL_SECRET,
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 const client = new line.Client(lineConfig);
 
-// ------------------------------
-// OpenAI 初期化
-// ------------------------------
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+// ===== OpenAI =====
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ------------------------------
-// ユーザーIDの永続化
-// ------------------------------
-fs.mkdirSync(DATA_DIR, { recursive: true });
-const USER_FILE = path.join(DATA_DIR, "user.json");
-
-function loadUserId() {
-  try {
-    if (!fs.existsSync(USER_FILE)) return null;
-    const raw = fs.readFileSync(USER_FILE, "utf8");
-    const parsed = JSON.parse(raw);
-    return parsed?.lastUserId || null;
-  } catch (e) {
-    console.error("[userStore] load error", e);
-    return null;
-  }
-}
-function saveUserId(id) {
-  try {
-    fs.writeFileSync(
-      USER_FILE,
-      JSON.stringify({ lastUserId: id, updatedAt: new Date().toISOString() }),
-      "utf8"
-    );
-  } catch (e) {
-    console.error("[userStore] save error", e);
-  }
-}
-let LAST_USER_ID = loadUserId();
-console.log("[userStore] loaded:", LAST_USER_ID ? "exists" : "none");
-
-// ------------------------------
-// Google Sheets 初期化
-// ------------------------------
-function getServiceAccountJSON() {
-  if (GOOGLE_SERVICE_ACCOUNT_JSON && GOOGLE_SERVICE_ACCOUNT_JSON.trim().startsWith("{")) {
-    return JSON.parse(GOOGLE_SERVICE_ACCOUNT_JSON);
-  }
-  if (GOOGLE_SERVICE_ACCOUNT_B64) {
-    const decoded = Buffer.from(GOOGLE_SERVICE_ACCOUNT_B64, "base64").toString("utf8");
-    return JSON.parse(decoded);
-  }
-  throw new Error("サービスアカウント鍵が未設定です（GOOGLE_SERVICE_ACCOUNT_JSON か GOOGLE_SERVICE_ACCOUNT_B64）");
-}
-
-const doc = new GoogleSpreadsheet(GOOGLE_SHEET_ID);
-async function initSheet(sheetName) {
-  const creds = getServiceAccountJSON();
-  await doc.useServiceAccountAuth(creds);
+// ===== Google Sheets =====
+const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID);
+async function initSheet(sheetName = "MealPlan") {
+  await doc.useServiceAccountAuth(JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON));
   await doc.loadInfo();
   const sheet = doc.sheetsByTitle[sheetName];
-  if (!sheet) throw new Error(`シート '${sheetName}' が見つかりません`);
+  if (!sheet) throw new Error(`Sheet '${sheetName}' not found`);
   return sheet;
 }
 
-// meals: slot,text,kcal,p,f,c,tips
-// reminders: week_start,slot,text,approved,created_at
-// logs: 任意（今回は使わないが将来拡張用）
+// ===== State =====
+let LAST_USER_ID = null;
+const TZ = "Asia/Tokyo";
+const WEEKDAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
-// ------------------------------
-// 共通ユーティリティ
-// ------------------------------
-function todayISO() {
-  return new Date().toISOString().split("T")[0];
+// ===== Week auto calc =====
+function getCurrentWeek() {
+  const start = new Date(process.env.START_DATE); // e.g., 2025-10-06 (Mon)
+  const now = new Date();
+  const diffWeeks = Math.floor((now - start) / (1000*60*60*24*7));
+  return diffWeeks + 1;
 }
-function jstNowISO() {
-  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" })).toISOString();
-}
-function nextMondayISO() {
-  const d = new Date();
-  d.setDate(d.getDate() + ((1 + 7 - d.getDay()) % 7));
-  return d.toISOString().split("T")[0];
+function getTodayKeys(d = new Date()) {
+  const day = WEEKDAYS[d.getDay()];
+  const week = getCurrentWeek();
+  return { week, day };
 }
 
-// ------------------------------
-// meals シートから該当スロットを取得
-// ------------------------------
-async function getMeal(slot) {
-  const sheet = await initSheet("meals");
+// ===== Query helpers =====
+async function getTodayRows() {
+  const sheet = await initSheet("MealPlan");
   const rows = await sheet.getRows();
-  // 完全一致（「朝」「昼」「夜」「ジム」「就寝」「週メニュー」）
-  const row = rows.find((r) => (r.slot || "").trim() === slot);
-  if (!row) return null;
-  return {
-    slot: row.slot,
-    text: row.text,
-    kcal: row.kcal,
-    p: row.p,
-    f: row.f,
-    c: row.c,
-    tips: row.tips,
-  };
+  const { week, day } = getTodayKeys();
+  return rows.filter(r => Number(r.Week) === week && String(r.Day) === day);
+}
+async function findMealSlot(slotName) {
+  const today = await getTodayRows();
+  return today.find(r => r.Kind === "Meal" && String(r.Slot) === slotName) || null;
+}
+async function findTrainingToday() {
+  const today = await getTodayRows();
+  return today.find(r => r.Kind === "Training") || null;
 }
 
-// ------------------------------
-// 表示フォーマット（役割ラベル付）
-// ------------------------------
-function formatMealMessage(meal) {
-  if (!meal) {
-    return { type: "text", text: "対象のメニューが見つかりませんでした。\n—GEN" };
+// ===== Format helpers =====
+function num(n) { const v = Number(n); return Number.isFinite(v) ? v : 0; }
+function fmtMeal(bullet, row) {
+  const cal = num(row?.Calories), p = num(row?.P), f = num(row?.F), c = num(row?.C);
+  return `${bullet}【${row.Slot}】\n${row.Text}\n${cal}kcal (P${p}/F${f}/C${c})\nTips: ${row.Tips || "-"}`;
+}
+function fmtTraining(row) {
+  return `【今日のトレーニング】\n${row.Text}\nTips: ${row.Tips || "-"}`;
+}
+
+// ===== “今日のメニュー” 一括返信 =====
+async function getTodayPlanText() {
+  const { week, day } = getTodayKeys();
+  const rows = await getTodayRows();
+  if (!rows.length) return `今日のメニューは未設定です。（Week${week} ${day})`;
+
+  const meals = rows.filter(r => r.Kind === "Meal");
+  const train = rows.find(r => r.Kind === "Training");
+
+  let total = { cal: 0, p: 0, f: 0, c: 0 };
+  let lines = [`【今日のメニュー】(Week${week} ${day})`];
+
+  // 並び順固定（朝→昼→夜→就寝）
+  for (const slot of ["朝","昼","夜","就寝"]) {
+    const m = meals.find(r => r.Slot === slot);
+    if (m) {
+      lines.push("", fmtMeal("🍴 ", m));
+      total.cal += num(m.Calories); total.p += num(m.P); total.f += num(m.F); total.c += num(m.C);
+    }
   }
-  // 役割判定：ジム or 週メニュー は KINIK、それ以外は SHOK
-  const isKINIK = meal.slot.includes("ジム") || meal.slot.includes("週");
-  const role = isKINIK ? "KINIK" : "SHOK";
-
-  // 数値でない場合はそのまま表示（ジムの消費kcalなど）
-  const kcal = (meal.kcal === undefined || meal.kcal === null || meal.kcal === "" || meal.kcal === "-")
-    ? `${meal.kcal || "-"}`
-    : `${meal.kcal}kcal`;
-
-  const p = meal.p ?? "-";
-  const f = meal.f ?? "-";
-  const c = meal.c ?? "-";
-
-  return {
-    type: "text",
-    text:
-`【${meal.slot}】
-${meal.text}
-
-カロリー: ${kcal}
-P: ${p}g / F: ${f}g / C: ${c}g
-
-Tips: ${meal.tips}
-—${role}`,
-  };
+  lines.push("", `=== 合計 ===\n${total.cal} kcal (P${total.p}/F${total.f}/C${total.c})`);
+  if (train) lines.push("", "🏋️‍♂️ " + fmtTraining(train));
+  return lines.join("\n");
 }
 
-// ------------------------------
-// 週次：次週リマインド案の生成／修正
-// ------------------------------
-let STATE = "NORMAL";           // NORMAL / WAITING_APPROVAL
-let TEMP_REMINDERS = [];        // { week, slot, text }
+// ===== 週末：来週メニュー自動生成 → MealPlanに保存 =====
+async function generateNextWeekMeals() {
+  const nextWeek = getCurrentWeek() + 1;
 
-async function generateWeeklyRemindersFromAI() {
-  // 将来的には logs を読み込んで傾向反映。まずはプロンプトのみで。
-  const sys =
-    "あなたは厳しめの日本語パーソナルトレーナーです。短く端的に、命令形で書いてください。";
-  const user =
-    "次週用の1日7回のリマインドを、起床/ジム前/ジム後/昼食/間食/夕食/就寝前 の順で、それぞれ1行で出してください。装飾なしのテキストのみ。";
+  const sys = "あなたは厳しめの日本語の栄養士兼トレーナー。ダイエット向けに週次プランを作る。短く端的。";
+  const user = `
+対象: 28歳男性/170cm/80kg 減量。魚は刺身中心、夜は低糖質、週3回まで同メニューOK。オートミールは飽き対策で変化を付ける。
+出力: CSV（ヘッダ必須） Day,Kind,Slot,Text,Calories,P,F,C,Tips
+- Day: Sun,Mon, Tue, Wed, Thu, Fri, Sat
+- Kind: "Meal" または "Training"
+- Slot: Meal→朝/昼/夜/就寝, Training→ジム or 休養
+- Calories,P,F,C は数値（空OK：Trainingは空で可）
+- 文末の装飾や余計な説明は不要（CSVのみ）
+`;
 
   const res = await openai.chat.completions.create({
     model: "gpt-4o-mini",
@@ -192,264 +121,181 @@ async function generateWeeklyRemindersFromAI() {
     ],
   });
 
-  const lines = (res.choices?.[0]?.message?.content || "")
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const csv = (res.choices?.[0]?.message?.content || "").trim();
+  const lines = csv.split("\n").map(s => s.trim()).filter(Boolean);
+  if (!/^Day,?Kind,?Slot,?Text,?Calories,?P,?F,?C,?Tips/i.test(lines[0])) {
+    throw new Error("CSVヘッダが想定と違います。モデル出力を確認してください。");
+  }
 
-  const slots = ["起床", "ジム前", "ジム後", "昼食", "間食", "夕食", "就寝前"];
-  const week = nextMondayISO();
-  return slots.map((slot, i) => ({
-    week,
-    slot,
-    text: lines[i] || `${slot}の指示を守れ。`,
-  }));
-}
-
-async function reviseRemindersFromAI(reminders) {
-  const sys = "あなたは厳しめの日本語パーソナルトレーナーです。命令形で短く。";
-  const user = "以下の7行の文面を、重複を避けつつ言い換えて提示してください：\n" +
-    reminders.map((r) => `${r.slot}: ${r.text}`).join("\n");
-
-  const res = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0.5,
-    messages: [
-      { role: "system", content: sys },
-      { role: "user", content: user },
-    ],
-  });
-
-  const lines = (res.choices?.[0]?.message?.content || "")
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  return reminders.map((r, i) => ({
-    ...r,
-    text: lines[i] || r.text,
-  }));
-}
-
-// ------------------------------
-// 承認フローで reminders に保存
-// ------------------------------
-async function saveReminders(reminders) {
-  const sheet = await initSheet("reminders");
-  for (const r of reminders) {
+  const sheet = await initSheet("MealPlan");
+  for (const line of lines.slice(1)) {
+    // CSV中のカンマを想定し、単純split。必要なら厳密CSVパーサに置換可。
+    const parts = line.split(",");
+    const [Day, Kind, Slot, Text, Calories, P, F, C, Tips] = parts;
     await sheet.addRow({
-      week_start: r.week,
-      slot: r.slot,
-      text: r.text,
-      approved: true,
-      created_at: jstNowISO(),
+      Week: nextWeek,
+      Day: Day?.trim(),
+      Kind: Kind?.trim(),
+      Slot: Slot?.trim(),
+      Text: Text?.trim(),
+      Calories: (Calories || "").trim(),
+      P: (P || "").trim(),
+      F: (F || "").trim(),
+      C: (C || "").trim(),
+      Tips: (Tips || "").trim(),
     });
   }
+  return `来週(Week${nextWeek})のメニューを作成し、保存しました。`;
 }
 
-// ------------------------------
-// Push時に reminders から文面取得
-// ------------------------------
-async function getLatestApprovedReminder(slot) {
-  const sheet = await initSheet("reminders");
+// ===== 月初：先月分をアーカイブへ移動 =====
+async function archiveLastMonth() {
+  await doc.useServiceAccountAuth(JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON));
+  await doc.loadInfo();
+  const sheet = doc.sheetsByTitle["MealPlan"];
+  if (!sheet) return;
+
   const rows = await sheet.getRows();
-  const filtered = rows.filter((r) => (r.slot || "") === slot && String(r.approved).toLowerCase() === "true");
-  if (filtered.length === 0) return null;
-  // 週の新しい順で最後を採用（created_at or week_start）
-  filtered.sort((a, b) => {
-    const ax = a.week_start || a.created_at || "";
-    const bx = b.week_start || b.created_at || "";
-    return ax.localeCompare(bx);
-  });
-  return filtered[filtered.length - 1]?.text || null;
+  if (!rows.length) return;
+
+  // 先月の "Week" をざっくり基準に：現在週-4 以前をアーカイブ対象とする（4週=約1ヶ月）
+  const currentWeek = getCurrentWeek();
+  const cutoff = currentWeek - 4;
+
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const ym = `${lastMonth.getFullYear()}${String(lastMonth.getMonth() + 1).padStart(2, "0")}`;
+  const archiveName = `Archive_${ym}`;
+
+  let archive = doc.sheetsByTitle[archiveName];
+  if (!archive) {
+    archive = await doc.addSheet({ title: archiveName, headerValues: sheet.headerValues });
+  }
+
+  for (const r of rows) {
+    const wk = Number(r.Week);
+    if (Number.isFinite(wk) && wk <= cutoff) {
+      await archive.addRow(r._rawData);
+      await r.delete();
+    }
+  }
+  console.log(`[Archive] moved rows (<= Week${cutoff}) to ${archiveName}`);
 }
 
-// ------------------------------
-// ルーティング：Webhook
-// ------------------------------
+// ===== Webhook =====
 app.post("/webhook", line.middleware(lineConfig), async (req, res) => {
   try {
-    await Promise.all((req.body.events || []).map(handleEvent));
+    await Promise.all((req.body.events || []).map(async (e) => {
+      if (e?.source?.userId) LAST_USER_ID = e.source.userId;
+
+      if (e.type === "message" && e.message?.type === "text") {
+        const t = (e.message.text || "").trim();
+        if (t.includes("今日のメニュー")) {
+          const msg = await getTodayPlanText();
+          return client.replyMessage(e.replyToken, { type: "text", text: msg });
+        }
+        if (t.includes("来週メニュー生成")) {
+          const msg = await generateNextWeekMeals();
+          return client.replyMessage(e.replyToken, { type: "text", text: msg });
+        }
+        // デフォルト：クイック
+        return client.replyMessage(e.replyToken, {
+          type: "text",
+          text: "コマンド: 今日のメニュー / 来週メニュー生成",
+          quickReply: {
+            items: [
+              { type: "action", action: { type: "message", label: "今日のメニュー", text: "今日のメニュー" } },
+              { type: "action", action: { type: "message", label: "来週メニュー生成", text: "来週メニュー生成" } },
+            ],
+          },
+        });
+      }
+    }));
     res.sendStatus(200);
-  } catch (e) {
-    console.error("Webhook error", e);
+  } catch (err) {
+    console.error("Webhook error", err);
     res.sendStatus(500);
   }
 });
 
-// ------------------------------
-// イベント処理
-// ------------------------------
-async function handleEvent(e) {
-  if (e.type !== "message" || e.message.type !== "text") return;
-  const t = (e.message.text || "").trim();
-
-  // userIdバインド
-  if (e.source?.userId && e.source.userId !== LAST_USER_ID) {
-    LAST_USER_ID = e.source.userId;
-    saveUserId(LAST_USER_ID);
-  }
-
-  // --- 承認フェーズ（WAITING_APPROVAL） ---
-  if (STATE === "WAITING_APPROVAL") {
-    if (t.includes("承認")) {
-      await saveReminders(TEMP_REMINDERS);
-      TEMP_REMINDERS = [];
-      STATE = "NORMAL";
-      return client.replyMessage(e.replyToken, {
-        type: "text",
-        text: "承認しました。次週のPushに反映します。\n—GEN",
-      });
-    }
-    if (t.includes("修正")) {
-      const revised = await reviseRemindersFromAI(TEMP_REMINDERS);
-      TEMP_REMINDERS = revised;
-      return client.replyMessage(e.replyToken, {
-        type: "text",
-        text:
-`修正案です。どちらにしますか？
-${revised.map((r) => `${r.slot}: ${r.text}`).join("\n")}
-
-「承認」または「修正」と送ってください。\n—GEN`,
-      });
-    }
-    // それ以外は促し
-    return client.replyMessage(e.replyToken, {
-      type: "text",
-      text: "「承認」または「修正」と送ってください。\n—GEN",
-    });
-  }
-
-  // --- 強化版 Quick Reply：メニュー表示 ---
-  if (t.includes("今日の朝")) {
-    const meal = await getMeal("朝");
-    return client.replyMessage(e.replyToken, formatMealMessage(meal));
-  }
-  if (t.includes("今日の昼")) {
-    const meal = await getMeal("昼");
-    return client.replyMessage(e.replyToken, formatMealMessage(meal));
-  }
-  if (t.includes("今日の夜")) {
-    const meal = await getMeal("夜");
-    return client.replyMessage(e.replyToken, formatMealMessage(meal));
-  }
-  if (t.includes("今日のジム")) {
-    const meal = await getMeal("ジム");
-    return client.replyMessage(e.replyToken, formatMealMessage(meal));
-  }
-  if (t.includes("就寝前")) {
-    const meal = await getMeal("就寝");
-    return client.replyMessage(e.replyToken, formatMealMessage(meal));
-  }
-  if (t.includes("今週メニュー")) {
-    const meal = await getMeal("週メニュー");
-    return client.replyMessage(e.replyToken, formatMealMessage(meal));
-  }
-
-  // --- 体重ログ（任意） ---
-  if (/^体重\s+(\d+(\.\d+)?)$/.test(t)) {
-    // 必要なら logs シートに保存する実装を追加可
-    const w = Number(t.split(/\s+/)[1]);
-    return client.replyMessage(e.replyToken, {
-      type: "text",
-      text: `体重 ${w}kg を記録しました。継続しましょう。\n—GEN`,
-    });
-  }
-
-  // --- Quick Reply メニューを提示（通常時のデフォルト） ---
-  const quick = {
-    type: "text",
-    text: "どれを確認しますか？",
-    quickReply: {
-      items: [
-        { type: "action", action: { type: "message", label: "今日の朝", text: "今日の朝" } },
-        { type: "action", action: { type: "message", label: "今日の昼", text: "今日の昼" } },
-        { type: "action", action: { type: "message", label: "今日の夜", text: "今日の夜" } },
-        { type: "action", action: { type: "message", label: "今日のジム", text: "今日のジム" } },
-        { type: "action", action: { type: "message", label: "就寝前", text: "就寝前" } },
-        { type: "action", action: { type: "message", label: "今週メニュー", text: "今週メニュー" } },
-      ],
-    },
-  };
-  return client.replyMessage(e.replyToken, quick);
-}
-
-// ------------------------------
-// 週次：日曜23:00に次週案を自動生成→承認依頼
-// ------------------------------
-cron.schedule("0 23 * * 0", async () => {
+// ===== Push: スプシから内容を拾って送る =====
+async function pushSlot(slotName, fallbackText) {
+  if (!LAST_USER_ID) return;
   try {
-    console.log("[cron] weekly proposal");
-    const reminders = await generateWeeklyRemindersFromAI();
-    TEMP_REMINDERS = reminders;
-    STATE = "WAITING_APPROVAL";
-    if (LAST_USER_ID && reminders.length > 0) {
-      await client.pushMessage(LAST_USER_ID, {
-        type: "text",
-        text:
-`【次週リマインド案】
-${reminders.map((r) => `${r.slot}: ${r.text}`).join("\n")}
-
-承認しますか？修正しますか？\n—GEN`,
-      });
-    } else {
-      console.log("[cron] no userId or empty reminders");
+    if (slotName === "ジム前") {
+      const tr = await findTrainingToday();
+      if (tr) {
+        return client.pushMessage(LAST_USER_ID, { type: "text", text: fmtTraining(tr) });
+      }
+      return client.pushMessage(LAST_USER_ID, { type: "text", text: fallbackText });
     }
-  } catch (e) {
-    console.error("[cron weekly] error", e);
-  }
-}, { timezone: "Asia/Tokyo" });
 
-// ------------------------------
-// 毎日7回：reminders からPullしてPush
-// ------------------------------
-async function pushFromReminders(slot) {
-  try {
-    if (!LAST_USER_ID) return;
-    const text = await getLatestApprovedReminder(slot);
-    if (!text) return;
-    await client.pushMessage(LAST_USER_ID, { type: "text", text });
+    if (slotName === "ジム後") {
+      // 朝の要約 + リカバリー促し
+      const morning = await findMealSlot("朝");
+      if (morning) {
+        const cal = num(morning.Calories), p = num(morning.P), f = num(morning.F), c = num(morning.C);
+        const text = `【ジム後】\nまずはプロテイン。\nその後の朝食:\n${morning.Text}\n${cal}kcal (P${p}/F${f}/C${c})\nTips: ${morning.Tips || "-"}\n水分も追加。`;
+        return client.pushMessage(LAST_USER_ID, { type: "text", text });
+      }
+      return client.pushMessage(LAST_USER_ID, { type: "text", text: fallbackText });
+    }
+
+    // 通常の食事スロット
+    const slotMap = { "起床":"朝", "昼食":"昼", "夕食":"夜", "就寝前":"就寝", "間食":"間食" };
+    const targetSlot = slotMap[slotName];
+    if (targetSlot) {
+      const meal = await findMealSlot(targetSlot);
+      if (meal) {
+        return client.pushMessage(LAST_USER_ID, { type: "text", text: fmtMeal("🍴 ", meal) });
+      }
+    }
+
+    // フォールバック
+    return client.pushMessage(LAST_USER_ID, { type: "text", text: fallbackText });
   } catch (e) {
-    console.error(`[cron push ${slot}] error`, e);
+    console.error(`[push ${slotName}] error`, e);
   }
 }
 
-cron.schedule("50 5 * * *", () => pushFromReminders("起床"),    { timezone: "Asia/Tokyo" });
-cron.schedule("0 6 * * *",  () => pushFromReminders("ジム前"),  { timezone: "Asia/Tokyo" });
-cron.schedule("30 7 * * *", () => pushFromReminders("ジム後"),  { timezone: "Asia/Tokyo" });
-cron.schedule("0 12 * * *", () => pushFromReminders("昼食"),    { timezone: "Asia/Tokyo" });
-cron.schedule("0 15 * * *", () => pushFromReminders("間食"),    { timezone: "Asia/Tokyo" });
-cron.schedule("0 19 * * *", () => pushFromReminders("夕食"),    { timezone: "Asia/Tokyo" });
-cron.schedule("0 23 * * *", () => pushFromReminders("就寝前"),  { timezone: "Asia/Tokyo" });
+// ===== CRON（JST） =====
+// 5:50 起床（朝メニュー提示）
+cron.schedule("50 5 * * *", () => pushSlot("起床", "【起床】水500ml＋EAA。朝食までに体を起こせ。"), { timezone: TZ });
+// 6:00 ジム前（今日のトレーニング）
+cron.schedule("0 6 * * *", () => pushSlot("ジム前", "【ジム前】動的ストレッチ。関節を温めろ。"), { timezone: TZ });
+// 7:30 ジム後（朝食要約）
+cron.schedule("30 7 * * *", () => pushSlot("ジム後", "【ジム後】プロテイン摂れ。朝食は計画どおり。"), { timezone: TZ });
+// 12:00 昼食（昼メニュー）
+cron.schedule("0 12 * * *", () => pushSlot("昼食", "【昼食】予定どおり。食後20分歩け。"), { timezone: TZ });
+// 15:00 間食（スロット無ければ既定）
+cron.schedule("0 15 * * *", () => pushSlot("間食", "【間食】プロテイン＋素焼きナッツ一握り。ストレッチ2分。"), { timezone: TZ });
+// 19:00 夕食（夜メニュー）
+cron.schedule("0 19 * * *", () => pushSlot("夕食", "【夕食】計画どおり。糖質は控えめに。"), { timezone: TZ });
+// 23:00 就寝前（就寝メニュー）
+cron.schedule("0 23 * * *", () => pushSlot("就寝前", "【就寝前】ヨーグルト＋プロテイン。23時は電源OFF。"), { timezone: TZ });
 
-// ------------------------------
-// 確認用エンドポイント
-// ------------------------------
+// 週末（日曜20:00）に来週メニュー自動生成
+cron.schedule("0 20 * * 0", async () => {
+  try {
+    const msg = await generateNextWeekMeals();
+    if (LAST_USER_ID) await client.pushMessage(LAST_USER_ID, { type: "text", text: msg });
+  } catch (e) {
+    console.error("[cron nextweek] error", e);
+  }
+}, { timezone: TZ });
+
+// 月初（1日0:00）にアーカイブ
+cron.schedule("0 0 1 * *", async () => {
+  try {
+    await archiveLastMonth();
+  } catch (e) {
+    console.error("[cron archive] error", e);
+  }
+}, { timezone: TZ });
+
+// ===== Health endpoints =====
 app.get("/", (_req, res) => res.send("LINE Bot Server OK"));
 app.get("/whoami", (_req, res) => res.json({ userIdSet: !!LAST_USER_ID, lastUserId: LAST_USER_ID }));
-app.get("/push-test", async (_req, res) => {
-  try {
-    if (!LAST_USER_ID) return res.send("userId未取得：一度Botにメッセージしてください。");
-    await client.pushMessage(LAST_USER_ID, { type: "text", text: "【テストPush】動け。水500ml＋EAAだ。\n—KINIK" });
-    res.send("Push送信OK");
-  } catch (e) {
-    console.error("push-test error", e);
-    res.status(500).send("Push送信失敗");
-  }
-});
-app.get("/admin/clear-user", (_req, res) => {
-  try {
-    if (fs.existsSync(USER_FILE)) fs.unlinkSync(USER_FILE);
-    LAST_USER_ID = null;
-    res.send("user.json を削除しました。LINEで一度話しかけて再バインドしてください。");
-  } catch (e) {
-    res.status(500).send("削除に失敗: " + e.message);
-  }
-});
 
-// ------------------------------
-// 起動
-// ------------------------------
-app.listen(PORT, () => {
-  console.log("Server OK on port", PORT);
-});
+// ===== Start =====
+app.listen(process.env.PORT || 3000, () => console.log("Server OK"));
