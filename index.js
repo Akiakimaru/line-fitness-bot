@@ -1,4 +1,10 @@
-// index.js
+// index.js  （強耐性版・デバッグ付き）
+// - LINE署名検証OK（express.json()は使わない）
+// - Google Sheets v5（google-spreadsheet + google-auth-library JWT）
+// - MealPlan 参照/自動生成/アーカイブ
+// - 週/曜日のJST判定・全角数字/余計な空白に強い
+// - デバッグ: /diag-sheets /debug-week /debug-today /debug-scan
+
 require("dotenv").config();
 const express = require("express");
 const line = require("@line/bot-sdk");
@@ -7,7 +13,7 @@ const { JWT } = require("google-auth-library");
 const OpenAI = require("openai");
 const cron = require("node-cron");
 
-const app = express(); // 署名検証のため express.json() は付けない
+const app = express(); // ← 署名検証のために body パーサは付けない
 
 /* ========= LINE ========= */
 const lineConfig = {
@@ -48,26 +54,41 @@ async function getSheet(sheetName = "MealPlan") {
 let LAST_USER_ID = null;
 const TZ = "Asia/Tokyo";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// Dayエイリアス（日本語/余白対応）
 const DAY_ALIASES = {
   Sun: "Sun", Mon: "Mon", Tue: "Tue", Wed: "Wed", Thu: "Thu", Fri: "Fri", Sat: "Sat",
   "日": "Sun", "月": "Mon", "火": "Tue", "水": "Wed", "木": "Thu", "金": "Fri", "土": "Sat",
 };
 const normDay = (v) => DAY_ALIASES[String(v ?? "").trim()] ?? String(v ?? "").trim();
-const toNum = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
-// JST（固定）で「今」
+// JSTの「今」
 const nowJST = () => new Date(Date.now() + 9 * 60 * 60 * 1000);
+
+// 全角→半角数字／数字抽出→整数化（Weekなどに使用）
+const toHalfWidthNum = (v) =>
+  String(v ?? "").replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+const toIntStrict = (v) => {
+  const s = toHalfWidthNum(v).replace(/[^\d-]/g, "").trim();
+  return s ? parseInt(s, 10) : NaN;
+};
+
+// 数値列（kcal/PFC用）も強化しておく
+const toNum = (v) => {
+  const s = toHalfWidthNum(v).replace(/[^\d.-]/g, "");
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+};
 
 function getCurrentWeek() {
   const start = new Date(process.env.START_DATE); // 例: 2025-09-29（月）
   const now = nowJST();
   const diffWeeks = Math.floor((now - start) / (1000 * 60 * 60 * 24 * 7));
-  return Math.max(1, diffWeeks + 1); // 週0防止
+  return Math.max(1, diffWeeks + 1); // 週0を防止
 }
-
 function getTodayKey() {
   const week = getCurrentWeek();
-  const day = WEEKDAYS[nowJST().getUTCDay()]; // JST 基準
+  const day = WEEKDAYS[nowJST().getUTCDay()]; // JST基準
   return { week, day };
 }
 
@@ -77,19 +98,22 @@ async function getTodayRows() {
   const { sheet } = await getSheet("MealPlan");
   const rows = await sheet.getRows();
   const today = normDay(day);
-  return rows.filter((r) => Number(r.Week) === week && normDay(r.Day) === today);
+
+  return rows.filter((r) => {
+    const w = toIntStrict(r.Week);   // ← 強耐性
+    const d = normDay(r.Day);
+    return w === week && d === today;
+  });
 }
 
 async function findMealSlot(slot) {
   const rows = await getTodayRows();
   return rows.find((r) => r.Kind === "Meal" && String(r.Slot).trim() === slot) || null;
 }
-
 async function findTrainingToday() {
   const rows = await getTodayRows();
   return rows.find((r) => r.Kind === "Training") || null;
 }
-
 async function buildTodayPlanText() {
   const { week, day } = getTodayKey();
   const rows = await getTodayRows();
@@ -158,7 +182,7 @@ CSVで出力（ヘッダ必須）: Day,Kind,Slot,Text,Calories,P,F,C,Tips
     const d = (Day || "").trim();
     const s = (Slot || "").trim();
     const exists = existing.find(
-      (r) => Number(r.Week) === nextWeek && normDay(r.Day) === normDay(d) && String(r.Slot).trim() === s
+      (r) => toIntStrict(r.Week) === nextWeek && normDay(r.Day) === normDay(d) && String(r.Slot).trim() === s
     );
     if (exists) continue;
 
@@ -187,7 +211,7 @@ async function archiveOldWeeks() {
   const cutoff = current - 4;
   if (cutoff <= 0) return;
 
-  const old = rows.filter((r) => Number(r.Week) <= cutoff);
+  const old = rows.filter((r) => toIntStrict(r.Week) <= cutoff);
   if (!old.length) return;
 
   const now = new Date();
@@ -244,7 +268,7 @@ async function pushSlot(slotName, fallback) {
   }
 }
 
-/* ========= 確認系エンドポイント ========= */
+/* ========= 確認/診断エンドポイント ========= */
 app.get("/", (_req, res) => res.send("LINE Bot Server OK"));
 app.get("/whoami", (_req, res) => res.json({ userIdSet: !!LAST_USER_ID, lastUserId: LAST_USER_ID }));
 app.get("/push-test", async (_req, res) => {
@@ -273,6 +297,15 @@ app.get("/diag-sheets", async (_req, res) => {
     res.status(500).json({ error: String(e) });
   }
 });
+app.get("/diag-headers", async (_req, res) => {
+  try {
+    const { sheet } = await getSheet("MealPlan");
+    await sheet.loadHeaderRow();
+    res.json({ headers: sheet.headerValues });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
 app.get("/debug-week", (_req, res) => {
   const week = getCurrentWeek();
   const day = WEEKDAYS[nowJST().getUTCDay()];
@@ -284,10 +317,30 @@ app.get("/debug-today", async (_req, res) => {
     const { sheet } = await getSheet("MealPlan");
     const rows = await sheet.getRows();
     const sample = rows
-      .filter((r) => Number(r.Week) === week)
+      .filter((r) => toIntStrict(r.Week) === week) // ← 強耐性
       .map((r) => ({ Week: r.Week, Day: r.Day, Kind: r.Kind, Slot: r.Slot }))
-      .slice(0, 20);
+      .slice(0, 30);
     res.json({ START_DATE: process.env.START_DATE, week, day, jstISO: nowJST().toISOString(), sample });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+app.get("/debug-scan", async (_req, res) => {
+  try {
+    const { week, day } = getTodayKey();
+    const { sheet } = await getSheet("MealPlan");
+    const rows = await sheet.getRows();
+
+    const dump = rows.slice(0, 60).map((r) => ({
+      rawWeek: r.Week,
+      parsedWeek: toIntStrict(r.Week),
+      rawDay: r.Day,
+      normDay: normDay(r.Day),
+      kind: r.Kind,
+      slot: r.Slot,
+    }));
+
+    res.json({ target: { week, day }, dump });
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
@@ -342,33 +395,31 @@ cron.schedule("0 19 * * *", () => pushSlot("夕食", "【夕食】計画どお�
 cron.schedule("0 23 * * *", () => pushSlot("就寝前", "【就寝前】ヨーグルト＋プロテイン。23時は電源OFF。"), { timezone: TZ });
 
 // 週末（日曜20:00）: 来週メニュー自動生成
-cron.schedule("0 20 * * 0", async () => {
-  try {
-    const msg = await generateNextWeekMenu();
-    if (LAST_USER_ID) await client.pushMessage(LAST_USER_ID, { type: "text", text: msg });
-  } catch (e) {
-    console.error("[cron nextweek] error", e);
-  }
-}, { timezone: TZ });
+cron.schedule(
+  "0 20 * * 0",
+  async () => {
+    try {
+      const msg = await generateNextWeekMenu();
+      if (LAST_USER_ID) await client.pushMessage(LAST_USER_ID, { type: "text", text: msg });
+    } catch (e) {
+      console.error("[cron nextweek] error", e);
+    }
+  },
+  { timezone: TZ }
+);
 
 // 月初（1日0:00）: アーカイブ
-cron.schedule("0 0 1 * *", async () => {
-  try {
-    await archiveOldWeeks();
-  } catch (e) {
-    console.error("[cron archive] error", e);
-  }
-}, { timezone: TZ });
+cron.schedule(
+  "0 0 1 * *",
+  async () => {
+    try {
+      await archiveOldWeeks();
+    } catch (e) {
+      console.error("[cron archive] error", e);
+    }
+  },
+  { timezone: TZ }
+);
 
 /* ========= 起動 ========= */
 app.listen(process.env.PORT || 3000, () => console.log("Server OK"));
-
-app.get("/diag-headers", async (_req, res) => {
-  try {
-    const { sheet } = await getSheet("MealPlan");
-    await sheet.loadHeaderRow();
-    res.json({ headers: sheet.headerValues });
-  } catch (e) {
-    res.status(500).json({ error: String(e) });
-  }
-});
