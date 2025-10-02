@@ -1,4 +1,3 @@
-// index.js
 require("dotenv").config();
 const express = require("express");
 const line = require("@line/bot-sdk");
@@ -7,61 +6,48 @@ const { JWT } = require("google-auth-library");
 const OpenAI = require("openai");
 const cron = require("node-cron");
 
-const app = express();
+const app = express(); // ← 署名検証のため app.use(express.json()) は付けない
 
-/* =======================
+/* =========================
  * LINE 設定
- * ======================= */
+ * ========================= */
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 const client = new line.Client(lineConfig);
 
-/* =======================
+/* =========================
  * OpenAI 設定
- * ======================= */
+ * ========================= */
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-/* =======================
- * Google Sheets 設定（両対応）
- * ======================= */
-const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID);
-
-async function initSheet(sheetName = "MealPlan") {
+/* =========================
+ * Google Sheets（v5 対応）
+ *   - JWT を生成してコンストラクタに渡す
+ * ========================= */
+function newDoc() {
   const sa = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-
-  // どのメソッドが存在するかログ（Render logsで確認できる）
-  console.log("[gsheet] methods:", {
-    useServiceAccountAuth: typeof doc.useServiceAccountAuth,
-    useOAuth2Client: typeof doc.useOAuth2Client,
+  const auth = new JWT({
+    email: sa.client_email,
+    key: sa.private_key,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
   });
+  // v5: 認証はコンストラクタで渡す
+  return new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
+}
 
-  if (typeof doc.useServiceAccountAuth === "function") {
-    // v2系
-    await doc.useServiceAccountAuth({
-      client_email: sa.client_email,
-      private_key: sa.private_key,
-    });
-  } else {
-    // v3系
-    const auth = new JWT({
-      email: sa.client_email,
-      key: sa.private_key,
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    });
-    await doc.useOAuth2Client(auth);
-  }
-
+async function getSheet(sheetName = "MealPlan") {
+  const doc = newDoc();
   await doc.loadInfo();
   const sheet = doc.sheetsByTitle[sheetName];
   if (!sheet) throw new Error(`Sheet '${sheetName}' not found`);
-  return sheet;
+  return { doc, sheet };
 }
 
-/* =======================
+/* =========================
  * 共有状態 / ユーティリティ
- * ======================= */
+ * ========================= */
 let LAST_USER_ID = null;
 const TZ = "Asia/Tokyo";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -70,25 +56,22 @@ function getCurrentWeek() {
   // .env: START_DATE=YYYY-MM-DD （Week1の月曜）
   const start = new Date(process.env.START_DATE);
   const now = new Date();
-  const diffW = Math.floor((now - start) / (1000 * 60 * 60 * 24 * 7));
-  return diffW + 1;
+  const diffWeeks = Math.floor((now - start) / (1000 * 60 * 60 * 24 * 7));
+  return diffWeeks + 1;
 }
 function getTodayKey() {
   const week = getCurrentWeek();
   const day = WEEKDAYS[new Date().getDay()];
   return { week, day };
 }
-function num(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
+const toNum = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
-/* =======================
- * MealPlan 読み出し
- * ======================= */
+/* =========================
+ * MealPlan 取得/整形
+ * ========================= */
 async function getTodayRows() {
   const { week, day } = getTodayKey();
-  const sheet = await initSheet("MealPlan");
+  const { sheet } = await getSheet("MealPlan");
   const rows = await sheet.getRows();
   return rows.filter((r) => Number(r.Week) === week && String(r.Day) === day);
 }
@@ -103,49 +86,53 @@ async function findTrainingToday() {
   return rows.find((r) => r.Kind === "Training") || null;
 }
 
-async function getTodayPlanText() {
+async function buildTodayPlanText() {
   const { week, day } = getTodayKey();
   const rows = await getTodayRows();
   if (!rows.length) return `今日のメニューは未設定です。（Week${week} ${day})`;
 
   const order = ["朝", "昼", "夜", "就寝"];
-  let total = { cal: 0, p: 0, f: 0, c: 0 };
   const meals = rows.filter((r) => r.Kind === "Meal");
   const train = rows.find((r) => r.Kind === "Training");
 
-  let out = [`【今日のメニュー】(Week${week} ${day})`];
+  let total = { kcal: 0, p: 0, f: 0, c: 0 };
+  const out = [`【今日のメニュー】(Week${week} ${day})`];
+
   for (const s of order) {
     const m = meals.find((r) => r.Slot === s);
     if (m) {
       out.push(
         "",
-        `🍴 【${m.Slot}】\n${m.Text}\n${num(m.Calories)}kcal (P${num(m.P)}/F${num(m.F)}/C${num(m.C)})\nTips: ${m.Tips || "-"}`
+        `🍴 【${m.Slot}】\n${m.Text}\n${toNum(m.Calories)}kcal (P${toNum(m.P)}/F${toNum(m.F)}/C${toNum(m.C)})\nTips: ${m.Tips || "-"}`
       );
-      total.cal += num(m.Calories);
-      total.p += num(m.P);
-      total.f += num(m.F);
-      total.c += num(m.C);
+      total.kcal += toNum(m.Calories);
+      total.p += toNum(m.P);
+      total.f += toNum(m.F);
+      total.c += toNum(m.C);
     }
   }
-  out.push("", `=== 合計 ===\n${total.cal} kcal (P${total.p}/F${total.f}/C${total.c})`);
-  if (train) out.push("", `🏋️‍♂️ 【今日のトレーニング】\n${train.Text}\nTips: ${train.Tips || "-"}`);
+  out.push("", `=== 合計 ===\n${total.kcal} kcal (P${total.p}/F${total.f}/C${total.c})`);
+  if (train) {
+    out.push("", `🏋️‍♂️ 【今日のトレーニング】\n${train.Text}\nTips: ${train.Tips || "-"}`);
+  }
   return out.join("\n");
 }
 
-/* =======================
- * 週末の来週メニュー自動生成（重複ガード）
- * ======================= */
+/* =========================
+ * 来週メニュー自動生成（重複ガード）
+ * ========================= */
 async function generateNextWeekMenu() {
   const nextWeek = getCurrentWeek() + 1;
-  const sys = "あなたは厳しめの日本語の栄養士兼トレーナー。減量向けの週次プランを作る。";
+
+  const sys = "あなたは厳しめの日本語の栄養士兼トレーナー。減量向けの週次メニューを安全に生成する。";
   const user = `
-対象: 28歳男性/170cm/80kg、減量目的。魚は刺身中心可・夜は低糖質・週最大3回まで同メニュー可・オートミールは変化を付ける。
+対象: 28歳男性/170cm/80kg、リモートワーク、朝ジム。魚は刺身中心可、夜は低糖質。週で同メニューは最大3回まで。
 CSVで出力（ヘッダ必須）: Day,Kind,Slot,Text,Calories,P,F,C,Tips
 - Day: Sun,Mon,Tue,Wed,Thu,Fri,Sat
 - Kind: "Meal" or "Training"
 - Slot: Meal→朝/昼/夜/就寝, Training→ジム or 休養
 - Calories/P/F/C は数値（Trainingは空で可）
-余計な説明やコードブロックは不要（CSVのみ）。
+説明・コードブロック不要。CSVのみで返答。
 `;
 
   const res = await openai.chat.completions.create({
@@ -159,16 +146,20 @@ CSVで出力（ヘッダ必須）: Day,Kind,Slot,Text,Calories,P,F,C,Tips
 
   const csv = (res.choices?.[0]?.message?.content || "").trim();
   const lines = csv.split("\n").map((s) => s.trim()).filter(Boolean);
+
+  // ヘッダ検証
   if (!/^Day,?Kind,?Slot,?Text,?Calories,?P,?F,?C,?Tips/i.test(lines[0])) {
     throw new Error("CSVヘッダが想定と異なります。モデル出力を確認してください。");
   }
 
-  const sheet = await initSheet("MealPlan");
-  const rows = await sheet.getRows(); // 既存チェック用バッファ
+  const { sheet } = await getSheet("MealPlan");
+  const existing = await sheet.getRows(); // 重複ガード用
+
   for (const line of lines.slice(1)) {
     const [Day, Kind, Slot, Text, Calories, P, F, C, Tips] = line.split(",");
-    // 重複（Week & Day & Slot）ガード：既存行があればスキップ
-    const exists = rows.find((r) => Number(r.Week) === nextWeek && r.Day === Day && r.Slot === Slot);
+    const exists = existing.find(
+      (r) => Number(r.Week) === nextWeek && r.Day === (Day || "").trim() && r.Slot === (Slot || "").trim()
+    );
     if (exists) continue;
 
     await sheet.addRow({
@@ -185,18 +176,18 @@ CSVで出力（ヘッダ必須）: Day,Kind,Slot,Text,Calories,P,F,C,Tips
     });
   }
 
-  return `来週(Week${nextWeek})のメニューを生成し保存しました。`;
+  return `来週(Week${nextWeek})のメニューを自動生成し保存しました。`;
 }
 
-/* =======================
- * 月初のアーカイブ
- * ======================= */
+/* =========================
+ * 月初アーカイブ（4週より古いデータを退避）
+ * ========================= */
 async function archiveOldWeeks() {
-  const sheet = await initSheet("MealPlan");
+  const { doc, sheet } = await getSheet("MealPlan");
   const rows = await sheet.getRows();
 
   const current = getCurrentWeek();
-  const cutoff = current - 4; // 4週より古いものを退避
+  const cutoff = current - 4;
   if (cutoff <= 0) return;
 
   const old = rows.filter((r) => Number(r.Week) <= cutoff);
@@ -216,9 +207,9 @@ async function archiveOldWeeks() {
   console.log(`[Archive] moved <= Week${cutoff} to Archive_${ym}`);
 }
 
-/* =======================
+/* =========================
  * Push（スロット別）
- * ======================= */
+ * ========================= */
 async function pushSlot(slotName, fallback) {
   if (!LAST_USER_ID) return;
 
@@ -237,33 +228,36 @@ async function pushSlot(slotName, fallback) {
       if (morning) {
         const text =
           `【ジム後】まずはプロテイン。その後の朝食：\n` +
-          `${morning.Text}\n${num(morning.Calories)}kcal (P${num(morning.P)}/F${num(morning.F)}/C${num(morning.C)})\n` +
+          `${morning.Text}\n${toNum(morning.Calories)}kcal (P${toNum(morning.P)}/F${toNum(morning.F)}/C${toNum(morning.C)})\n` +
           `Tips: ${morning.Tips || "-"}`;
         return client.pushMessage(LAST_USER_ID, { type: "text", text });
       }
       return client.pushMessage(LAST_USER_ID, { type: "text", text: fallback });
     }
 
-    // 通常の食事スロット
+    // 食事スロット
     const map = { 起床: "朝", 昼食: "昼", 夕食: "夜", 就寝前: "就寝", 間食: "間食" };
     const slot = map[slotName];
     if (slot) {
       const m = await findMealSlot(slot);
       if (m) {
-        const text = `🍴 【${m.Slot}】\n${m.Text}\n${num(m.Calories)}kcal (P${num(m.P)}/F${num(m.F)}/C${num(m.C)})\nTips: ${m.Tips || "-"}`;
+        const text =
+          `🍴 【${m.Slot}】\n${m.Text}\n${toNum(m.Calories)}kcal (P${toNum(m.P)}/F${toNum(m.F)}/C${toNum(m.C)})\n` +
+          `Tips: ${m.Tips || "-"}`;
         return client.pushMessage(LAST_USER_ID, { type: "text", text });
       }
     }
 
+    // 見つからない場合のフォールバック
     return client.pushMessage(LAST_USER_ID, { type: "text", text: fallback });
   } catch (e) {
     console.error(`[push ${slotName}] error`, e);
   }
 }
 
-/* =======================
- * ルーティング
- * ======================= */
+/* =========================
+ * ルーティング（確認系）
+ * ========================= */
 app.get("/", (_req, res) => res.send("LINE Bot Server OK"));
 app.get("/whoami", (_req, res) => res.json({ userIdSet: !!LAST_USER_ID, lastUserId: LAST_USER_ID }));
 app.get("/push-test", async (_req, res) => {
@@ -277,17 +271,26 @@ app.get("/push-test", async (_req, res) => {
   }
 });
 
-// 診断
+// 診断（v5想定）
 app.get("/diag", async (_req, res) => {
-  res.json({
-    useServiceAccountAuth: typeof doc.useServiceAccountAuth,
-    useOAuth2Client: typeof doc.useOAuth2Client,
-    sheetId: process.env.GOOGLE_SHEET_ID,
-    hasEnv: !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
-  });
+  try {
+    const doc = newDoc();
+    await doc.loadInfo();
+    res.json({
+      sheetTitle: doc.title,
+      sheetId: process.env.GOOGLE_SHEET_ID,
+      hasEnv: !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+      version: "google-spreadsheet v5 style",
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
 });
 
-// Webhook（※express.json() は入れない）
+/* =========================
+ * LINE Webhook
+ *   ※ express.json() は使わず line.middleware のみ
+ * ========================= */
 app.post("/webhook", line.middleware(lineConfig), async (req, res) => {
   try {
     await Promise.all(
@@ -298,7 +301,7 @@ app.post("/webhook", line.middleware(lineConfig), async (req, res) => {
           const t = (e.message.text || "").trim();
 
           if (t.includes("今日のメニュー")) {
-            const msg = await getTodayPlanText();
+            const msg = await buildTodayPlanText();
             return client.replyMessage(e.replyToken, { type: "text", text: msg });
           }
           if (t.includes("来週メニュー生成")) {
@@ -326,10 +329,10 @@ app.post("/webhook", line.middleware(lineConfig), async (req, res) => {
   }
 });
 
-/* =======================
+/* =========================
  * CRON（JST）
- * ======================= */
-// リマインド（スプシ内容を拾って送る）
+ * ========================= */
+// スプシの内容を拾って送る（時間は例）
 cron.schedule("50 5 * * *", () => pushSlot("起床", "【起床】水500ml＋EAA。朝食までに体を起こせ。"), { timezone: TZ });
 cron.schedule("0 6 * * *", () => pushSlot("ジム前", "【ジム前】動的ストレッチ。関節を温めろ。"), { timezone: TZ });
 cron.schedule("30 7 * * *", () => pushSlot("ジム後", "【ジム後】プロテイン摂れ。朝食は計画どおり。"), { timezone: TZ });
@@ -338,7 +341,7 @@ cron.schedule("0 15 * * *", () => pushSlot("間食", "【間食】プロテイ�
 cron.schedule("0 19 * * *", () => pushSlot("夕食", "【夕食】計画どおり。糖質は控えめに。"), { timezone: TZ });
 cron.schedule("0 23 * * *", () => pushSlot("就寝前", "【就寝前】ヨーグルト＋プロテイン。23時は電源OFF。"), { timezone: TZ });
 
-// 週末（日曜20:00）来週メニュー自動生成
+// 週末（日曜20:00）: 来週メニュー自動生成
 cron.schedule(
   "0 20 * * 0",
   async () => {
@@ -352,7 +355,7 @@ cron.schedule(
   { timezone: TZ }
 );
 
-// 月初（1日0:00）アーカイブ
+// 月初（1日0:00）: アーカイブ
 cron.schedule(
   "0 0 1 * *",
   async () => {
@@ -365,7 +368,7 @@ cron.schedule(
   { timezone: TZ }
 );
 
-/* =======================
+/* =========================
  * 起動
- * ======================= */
+ * ========================= */
 app.listen(process.env.PORT || 3000, () => console.log("Server OK"));
