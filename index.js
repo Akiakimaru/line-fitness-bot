@@ -6,7 +6,6 @@ const { JWT } = require("google-auth-library");
 const cron = require("node-cron");
 
 const app = express();
-app.use(express.json());
 
 // === LINE SDK 設定 ===
 const config = {
@@ -61,7 +60,7 @@ async function getTodayMenu() {
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const day = days[now.getDay()];
 
-  // 行を抽出（trim & lowerCase）
+  // 行を抽出
   const todayRows = rows.filter(
     (r) =>
       String(r.Week).trim() === String(week) &&
@@ -92,6 +91,7 @@ async function getTodayMenu() {
 }
 
 // === LINE Webhook ===
+// 注意: express.json() をここに適用しない！
 app.post("/webhook", line.middleware(config), async (req, res) => {
   try {
     await Promise.all(req.body.events.map(handleEvent));
@@ -114,7 +114,7 @@ async function handleEvent(e) {
     return client.replyMessage(e.replyToken, { type: "text", text: menu });
   }
 
-  // Quick Reply（例）
+  // Quick Reply
   return client.replyMessage(e.replyToken, {
     type: "text",
     text: "何を知りたいですか？",
@@ -134,6 +134,9 @@ cron.schedule("0 12 * * *", async () => {
   const menu = await getTodayMenu();
   await client.pushMessage(LAST_USER_ID, { type: "text", text: "【昼リマインド】\n" + menu });
 }, { timezone: "Asia/Tokyo" });
+
+// === Webhook以外のエンドポイント用に express.json() を追加 ===
+app.use(express.json());
 
 // === サーバー起動 ===
 app.listen(process.env.PORT || 3000, () => {
