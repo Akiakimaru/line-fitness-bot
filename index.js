@@ -455,3 +455,120 @@ app.use(express.json());
 app.listen(process.env.PORT || 3000, () => {
   console.log("Server running");
 });
+
+// === OpenAI ===
+const OpenAI = require("openai");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// === 来週メニュー生成 ===
+async function generateNextWeekPlan() {
+  await doc.loadInfo();
+  const sheet = doc.sheetsByTitle["MealPlan"];
+  const rows = await sheet.getRows();
+
+  // 最大のWeekを算出
+  let maxWeek = 0;
+  rows.forEach(r => {
+    const w = parseInt(r.Week, 10);
+    if (!isNaN(w) && w > maxWeek) maxWeek = w;
+  });
+  const nextWeek = maxWeek + 1;
+
+  // 重複チェック
+  const exists = rows.some(r => String(r.Week) === String(nextWeek));
+  if (exists) {
+    console.log(`Week${nextWeek} already exists. Skip generation.`);
+    return `Week${nextWeek}はすでに存在します。`;
+  }
+
+  // 過去1週分のデータをプロンプトに渡す
+  const lastWeekRows = rows.filter(r => String(r.Week) === String(maxWeek));
+  const lastWeekText = lastWeekRows.map(r => 
+    `${r.Day} ${r.Kind} ${r.Slot}: ${r.Text} (P${r.P}/F${r.F}/C${r.C})`
+  ).join("\n");
+
+  const prompt = `
+あなたは管理栄養士兼パーソナルトレーナーです。
+以下は直近の食事・トレーニングプランです。
+
+${lastWeekText}
+
+次の週（Week${nextWeek}）のメニューを生成してください。
+条件:
+- 形式はCSV（Week,Day,Kind,Slot,Text,Calories,P,F,C,Tips）
+- DayはMon〜Sun
+- Mealは「朝」「昼」「夜」「就寝」
+- Trainingは1日1枠（ジム/休養）
+- カロリーとPFCを数値で入れる
+- Tipsは短く一言で
+- 週3回は同じ朝食があってよいが、毎日は避ける
+`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const csv = response.choices[0].message.content.trim();
+  console.log("Generated CSV:\n", csv);
+
+  // CSVを行ごとに保存
+  const lines = csv.split("\n").slice(1); // ヘッダー除外
+  for (const line of lines) {
+    const cols = line.split(",");
+    if (cols.length < 10) continue;
+    await sheet.addRow({
+      Week: cols[0],
+      Day: cols[1],
+      Kind: cols[2],
+      Slot: cols[3],
+      Text: cols[4],
+      Calories: cols[5],
+      P: cols[6],
+      F: cols[7],
+      C: cols[8],
+      Tips: cols[9],
+    });
+  }
+
+  return `Week${nextWeek}のメニューを生成・保存しました。`;
+}
+
+// === LINEハンドリングに追加 ===
+async function handleEvent(e) {
+  if (e.type !== "message" || e.message.type !== "text") return;
+  if (e.source?.userId) LAST_USER_ID = e.source.userId;
+
+  const msg = e.message.text.trim();
+
+  if (msg.includes("来週メニュー生成")) {
+    const result = await generateNextWeekPlan();
+    return client.replyMessage(e.replyToken, { type: "text", text: result });
+  }
+
+  if (msg.includes("今日のメニュー")) {
+    const menu = await getTodayMenu();
+    return client.replyMessage(e.replyToken, { type: "text", text: menu });
+  }
+
+  // Quick Reply
+  return client.replyMessage(e.replyToken, {
+    type: "text",
+    text: "何を知りたいですか？",
+    quickReply: {
+      items: [
+        { type: "action", action: { type: "message", label: "今日のメニュー", text: "今日のメニュー" } },
+        { type: "action", action: { type: "message", label: "来週メニュー生成", text: "来週メニュー生成" } },
+      ],
+    },
+  });
+}
+
+// === 週末の自動生成（毎週土曜23:00）===
+cron.schedule("0 23 * * Sat", async () => {
+  console.log("[cron fired] Next week menu generation");
+  const msg = await generateNextWeekPlan();
+  if (LAST_USER_ID) {
+    await client.pushMessage(LAST_USER_ID, { type: "text", text: msg });
+  }
+}, { timezone: "Asia/Tokyo" });
