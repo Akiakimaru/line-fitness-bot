@@ -27,7 +27,7 @@ const jwt = new JWT({
 });
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, jwt);
 
-/* ================= Helpers: JST ================= */
+/* ================= Helpers: JST & Utils ================= */
 const TZ = "Asia/Tokyo";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ADMIN_KEY = process.env.ADMIN_KEY || ""; // 管理用キー
@@ -282,15 +282,30 @@ cron.schedule("0 12 * * *", () => pushSlot("昼"), { timezone: TZ });
 cron.schedule("0 19 * * *", () => pushSlot("夜"), { timezone: TZ });
 cron.schedule("0 23 * * *", () => pushSlot("就寝"), { timezone: TZ });
 
-/* ================= GPT: 次週メニュー自動生成 ================= */
+/* ================= GPT: 次週メニュー自動生成（保存時ヘッダー弾き内蔵） ================= */
+function looksLikeHeaderRow(cols) {
+  // 先頭～数列がヘッダーと一致するか簡易判定
+  if (!cols || cols.length < 2) return false;
+  const head = cols.slice(0, 5).map(s => String(s).trim());
+  return (
+    head[0] === "Week" &&
+    head[1] === "Day" &&
+    head[2] === "Kind" &&
+    head[3] === "Slot" &&
+    head[4] === "Text"
+  );
+}
+
 async function generateNextWeekWithGPT() {
   const { week } = getWeekAndDayJST();
   const nextWeek = week + 1;
 
   const { sheet, rows, idx } = await loadMealPlan();
+  // 既に次週があるなら skip（冪等）
   const exists = rows.some((r) => cell(r, idx.Week) === String(nextWeek));
   if (exists) return { created: 0, skipped: true, week: nextWeek };
 
+  // 直近の週を要約してプロンプト安定化
   const thisWeekRows = rows.filter((r) => cell(r, idx.Week) === String(week));
   const brief = thisWeekRows.slice(0, 50).map((r) => {
     return [
@@ -328,15 +343,16 @@ ${brief}
   });
 
   const csv = (res.choices?.[0]?.message?.content || "").trim();
-  const lines = csv.split(/\r?\n/);
+  const lines = csv.split(/\r?\n/).filter(Boolean);
   if (!lines.length) return { created: 0, skipped: false, week: nextWeek, warn: "empty csv" };
 
-  const body = lines.slice(1).filter(Boolean);
-  let created = 0;
-  // まとめて追加できるよう配列化
+  // 先頭ヘッダー以外に紛れたヘッダーも除去して追加
+  const body = lines.slice(1);
   const toInsert = [];
   for (const line of body) {
     const cols = line.split(",");
+    if (looksLikeHeaderRow(cols)) continue; // 途中ヘッダー掃除（保存時の安全弁）
+
     if (cols.length < 10) continue;
     const row = {
       Week: cols[0], Day: cols[1], Kind: cols[2], Slot: cols[3],
@@ -345,6 +361,7 @@ ${brief}
     if (!row.Week || !row.Day || !row.Kind || !row.Slot || !row.Text) continue;
     toInsert.push(row);
   }
+  let created = 0;
   if (toInsert.length) {
     await chunkAddRows(sheet, toInsert); // バッチ追加
     created = toInsert.length;
@@ -376,11 +393,19 @@ async function archiveOldWeeksBatch(keepRecentN = 4) {
   const cutoff = week - keepRecentN;
   if (cutoff < 1) return { moved: 0, kept: rows.length, cutoff, week };
 
-  // 分類：移動対象／残す対象
+  // 分類：移動対象／残す対象（ヘッダー紛れの掃除も実施）
   const toMove = [];
   const toKeep = [];
   for (const r of rows) {
-    const w = parseInt(cell(r, idx.Week) || "0", 10);
+    const wStr = cell(r, idx.Week);
+    const dStr = cell(r, idx.Day);
+    // ヘッダーっぽい行（Week,Day,Kind,Slot,Text...）は常に除外 → toKeepへ入れない（=掃除）
+    if (wStr === "Week" && dStr === "Day") {
+      // ヘッダー行混入を“捨てる”扱いにする（Archiveにも入れない）
+      continue;
+    }
+
+    const w = parseInt(wStr || "0", 10);
     if (!Number.isFinite(w) || w <= 0) { toKeep.push(r); continue; }
     if (w <= cutoff) toMove.push(r);
     else toKeep.push(r);
@@ -396,7 +421,7 @@ async function archiveOldWeeksBatch(keepRecentN = 4) {
     archive = await doc.addSheet({ title: name, headerValues: headers });
   }
 
-  // 1) アーカイブに一括追加
+  // 1) アーカイブに一括追加（ヘッダー不要）
   const movePayload = toMove.map((r) => {
     const o = {};
     headers.forEach((h, i) => { o[h] = cell(r, i); });
@@ -404,7 +429,7 @@ async function archiveOldWeeksBatch(keepRecentN = 4) {
   });
   await chunkAddRows(archive, movePayload); // バッチ追加
 
-  // 2) MealPlan を再構築（残す行のみで再生成）
+  // 2) MealPlan を再構築（残す行のみで再生成、紛れヘッダーは既に除去済）
   const keepPayload = toKeep.map((r) => {
     const o = {};
     headers.forEach((h, i) => { o[h] = cell(r, i); });
@@ -467,7 +492,7 @@ app.get("/admin/auto-gen", async (req, res) => {
 
 // スロットPush送信（?slot=朝/昼/夜/就寝）
 app.get("/admin/push-slot", async (req, res) => {
-  if (req.query.key !== ADMIN_KEY) return res.status(401).send("unauthorized");
+  if (req.query.key !== ADMIN_KEY) return res.status(401).send "unauthorized";
   const slot = req.query.slot || "昼";
   try {
     await pushSlot(slot);
@@ -485,12 +510,15 @@ app.get("/admin/archive", async (req, res) => {
     const dry = req.query.dry === "1";
 
     if (dry) {
-      // ドライランは件数だけ計算
+      // ドライランは件数だけ計算（かつヘッダー紛れは候補に含めない）
       const { week } = getWeekAndDayJST();
       const { rows, idx } = await loadMealPlan();
       const cutoff = week - keep;
       const candidate = rows.filter(r => {
-        const w = parseInt(cell(r, idx.Week) || "0", 10);
+        const wStr = cell(r, idx.Week);
+        const dStr = cell(r, idx.Day);
+        if (wStr === "Week" && dStr === "Day") return false; // ヘッダー掃除
+        const w = parseInt(wStr || "0", 10);
         return Number.isFinite(w) && w > 0 && w <= cutoff;
       }).length;
       return res.json({ ok: true, dryRun: true, keep, currentWeek: week, cutoff, candidate });
