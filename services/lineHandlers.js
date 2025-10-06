@@ -1,182 +1,207 @@
-// services/lineHandlers.js
-const { todayYMDJST, getWeekAndDayJST } = require("../lib/utils");
-const { loadMealPlan, appendLogs } = require("../lib/sheets");
+// lib/llm.js
+const OpenAI = require("openai");
+const { withBackoff } = require("./utils");
+const { loadMealPlan, getRecentLogs, chunkAddRows } = require("./sheets");
 
-const ADMIN_KEY = process.env.ADMIN_KEY || "";
-let LAST_USER_ID = null;     // 単独運用想定
-let editContext = null;      // { slot, draft? }
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const cell = (row, i) => String((row._rawData && row._rawData[i]) ?? "").trim();
+/* ===== ヘッダー検出 & 正規化 ===== */
 
-async function getTodayMenuText() {
-  const { week, day } = getWeekAndDayJST(process.env.START_DATE);
-  const { rows, idx } = await loadMealPlan();
-  const today = rows.filter(
-    (r) =>
-      cell(r, idx.Week) === String(week) &&
-      cell(r, idx.Day).toLowerCase() === day.toLowerCase()
-  );
-  if (!today.length) return `今日のメニューは未設定です。\n（Week${week} ${day})`;
-
-  const meals = today.filter((r) => cell(r, idx.Kind) === "Meal");
-  const trainings = today.filter((r) => cell(r, idx.Kind) === "Training");
-
-  let text = `【今日のメニュー】(Week${week} ${day})\n\n🍽 食事\n`;
-  for (const r of meals) {
-    const slot = cell(r, idx.Slot);
-    const desc = cell(r, idx.Text);
-    const kcal = cell(r, idx.Calories);
-    const P = cell(r, idx.P);
-    const F = cell(r, idx.F);
-    const C = cell(r, idx.C);
-    const tips = cell(r, idx.Tips) || "-";
-    text += `- ${slot}: ${desc} （${kcal}kcal, P${P} F${F} C${C}）\n  👉 ${tips}\n`;
-  }
-  if (trainings.length) {
-    text += `\n💪 トレーニング\n`;
-    for (const r of trainings) {
-      const slot = cell(r, idx.Slot);
-      const desc = cell(r, idx.Text);
-      const tips = cell(r, idx.Tips) || "-";
-      text += `- ${slot}: ${desc}\n  👉 ${tips}\n`;
-    }
-  }
-  return text;
+// 候補デリミタを全チェック（カウント多いものを採用。両方ゼロなら空白連続区切り）
+function detectDelimiterFlexible(line) {
+  const cand = [
+    { d: "\t", n: (line.match(/\t/g) || []).length },
+    { d: ",", n: (line.match(/,/g) || []).length },
+    { d: ";", n: (line.match(/;/g) || []).length },
+    { d: "，", n: (line.match(/，/g) || []).length }, // 全角カンマ
+    { d: "、", n: (line.match(/、/g) || []).length }, // 和文読点
+    { d: "|", n: (line.match(/\|/g) || []).length },
+  ];
+  cand.sort((a, b) => b.n - a.n);
+  if (cand[0].n > 0) return { delim: cand[0].d, regex: new RegExp(`\\${cand[0].d}`) };
+  // どれも出ていない→空白連続で区切る
+  return { delim: "WS", regex: /\s{2,}/ };
 }
 
-async function getTodaySlotText(slotLabel) {
-  const { week, day } = getWeekAndDayJST(process.env.START_DATE);
-  const { rows, idx } = await loadMealPlan();
-  const r = rows.find(
-    (r) =>
-      cell(r, idx.Week) === String(week) &&
-      cell(r, idx.Day).toLowerCase() === day.toLowerCase() &&
-      cell(r, idx.Slot) === slotLabel &&
-      ["Meal", "Training"].includes(cell(r, idx.Kind))
-  );
-  if (!r) return null;
-
-  if (cell(r, idx.Kind) === "Meal") {
-    const kcal = cell(r, idx.Calories);
-    const P = cell(r, idx.P);
-    const F = cell(r, idx.F);
-    const C = cell(r, idx.C);
-    const tips = cell(r, idx.Tips) || "-";
-    return `【${slotLabel}】${cell(r, idx.Text)}（${kcal}kcal, P${P} F${F} C${C}）\n👉 ${tips}`;
-  } else {
-    const tips = cell(r, idx.Tips) || "-";
-    return `【${slotLabel}】${cell(r, idx.Text)}\n👉 ${tips}`;
-  }
+function norm(tok) {
+  return String(tok || "")
+    .replace(/^\uFEFF/, "")   // BOM
+    .replace(/^["']|["']$/g, "") // 両端の引用符
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 }
 
-async function handleEvent(e, lineClient) {
-  if (e?.source?.userId) LAST_USER_ID = e.source.userId;
-  if (e.type !== "message" || e.message?.type !== "text") return;
+// 英日含む別名をサポート
+function normalizeHeaderToken(tok) {
+  const t = norm(tok);
+  if (["week", "週", "第"].includes(t)) return "week";
+  if (["day", "曜日"].includes(t)) return "day";
+  if (["kind", "種別", "カテゴリ", "category"].includes(t)) return "kind";
+  if (["slot", "スロット", "部位", "タイム"].includes(t)) return "slot";
+  if (["text", "本文", "内容", "メニュー"].includes(t)) return "text";
+  if (["calories", "kcal", "calories(kcal)", "calories (kcal)", "カロリー"].includes(t)) return "calories";
+  if (["p", "protein", "タンパク質"].includes(t)) return "p";
+  if (["f", "fat", "脂質"].includes(t)) return "f";
+  if (["c", "carb", "carbs", "炭水化物"].includes(t)) return "c";
+  if (["tips", "tip", "note", "notes", "メモ", "注意"].includes(t)) return "tips";
+  return t;
+}
 
-  const msg = (e.message.text || "").trim();
-  const today = todayYMDJST();
+const EXPECTED = ["week", "day", "kind", "slot", "text", "calories", "p", "f", "c", "tips"];
 
-  // ===== 記録: 体重 =====
-  const mWeight = msg.match(/^体重\s*([0-9]+(?:\.[0-9]+)?)\s*$/);
-  if (mWeight) {
-    const w = parseFloat(mWeight[1]);
-    await appendLogs([
-      { Date: today, Kind: "Weight", Slot: "-", Text: `${w}kg`, Calories: "", P: "", F: "", C: "", Source: "line", Meta: JSON.stringify({ weight: w }) }
-    ]);
-    return lineClient.replyMessage(e.replyToken, { type: "text", text: `体重 ${w}kg を記録しました ✅` });
-  }
-
-  // ===== 記録: 食事 =====
-  const mMeal = msg.match(/^食事\s*(朝|昼|夜|就寝)?\s*[:：]?\s*(.+)$/);
-  if (mMeal) {
-    const slot = mMeal[1] || "-";
-    const text = mMeal[2].trim();
-    await appendLogs([{ Date: today, Kind: "Meal", Slot: slot, Text: text, Calories: "", P: "", F: "", C: "", Source: "line", Meta: "{}" }]);
-    return lineClient.replyMessage(e.replyToken, { type: "text", text: `食事（${slot}）を記録しました ✅\n${text}` });
-  }
-
-  // ===== 記録: トレーニング =====
-  const mTr = msg.match(/^(トレ|トレーニング)\s*[:：]?\s*(.+)$/);
-  if (mTr) {
-    const text = mTr[2].trim();
-    const slot = /休養|レスト/i.test(text) ? "休養" : "ジム";
-    await appendLogs([{ Date: today, Kind: "Training", Slot: slot, Text: text, Calories: "", P: "", F: "", C: "", Source: "line", Meta: "{}" }]);
-    return lineClient.replyMessage(e.replyToken, { type: "text", text: `トレーニング（${slot}）を記録しました ✅\n${text}` });
-  }
-
-  // ===== 編集フロー =====
-  if (/^編集\s*(朝|昼|夜|就寝|ジム)$/.test(msg)) {
-    const slot = msg.replace("編集", "").trim();
-    editContext = { slot, draft: "" };
-    return lineClient.replyMessage(e.replyToken, { type: "text", text: `「${slot}」の新しい本文を送ってください。` });
-  }
-
-  if (editContext && !/^はい$|^いいえ$/.test(msg)) {
-    editContext.draft = msg;
-    return lineClient.replyMessage(e.replyToken, {
-      type: "text",
-      text: `以下で更新します。よろしいですか？\n\n【${editContext.slot}】\n${editContext.draft}`,
-      quickReply: {
-        items: [
-          { type: "action", action: { type: "message", label: "はい", text: "はい" } },
-          { type: "action", action: { type: "message", label: "いいえ", text: "いいえ" } },
-        ],
-      },
-    });
-  }
-
-  if (editContext && /^いいえ$/.test(msg)) {
-    editContext = null;
-    return lineClient.replyMessage(e.replyToken, { type: "text", text: "キャンセルしました。" });
-  }
-
-  if (editContext && /^はい$/.test(msg)) {
-    const { slot, draft } = editContext;
-    editContext = null;
-    const { getWeekAndDayJST } = require("../lib/utils");
-    const { rows, idx } = await loadMealPlan();
-    const { week, day } = getWeekAndDayJST(process.env.START_DATE);
-    const target = rows.find(
-      (r) =>
-        String(r._rawData[idx.Week]).trim() === String(week) &&
-        String(r._rawData[idx.Day]).trim().toLowerCase() === day.toLowerCase() &&
-        String(r._rawData[idx.Slot]).trim() === slot
-    );
-    if (!target) {
-      return lineClient.replyMessage(e.replyToken, { type: "text", text: "該当スロットが見つかりませんでした。" });
-    }
-    target._rawData[idx.Text] = draft;
-    await target.save(); // save() は sheets.js の backoff層外だがSDK内リトライ有。必要なら差し替え可。
-    return lineClient.replyMessage(e.replyToken, { type: "text", text: `更新完了 ✅\n【${slot}】\n${draft}` });
-  }
-
-  // ===== コマンド =====
-  if (msg.includes("今日のメニュー")) {
-    const menu = await getTodayMenuText();
-    return lineClient.replyMessage(e.replyToken, { type: "text", text: menu });
-  }
-
-  if (msg.includes("来週メニュー生成")) {
-    // 実行は /admin/auto-gen の方が確実。ここでは案内のみ。
-    return lineClient.replyMessage(e.replyToken, { type: "text", text: "管理者メニューから実行してください：/admin/auto-gen" });
-  }
-
-  return lineClient.replyMessage(e.replyToken, {
-    type: "text",
-    text: "コマンドを選んでください。",
-    quickReply: {
-      items: [
-        { type: "action", action: { type: "message", label: "今日のメニュー", text: "今日のメニュー" } },
-        { type: "action", action: { type: "message", label: "編集 昼", text: "編集 昼" } },
-        { type: "action", action: { type: "message", label: "トレ: ベンチ4x8・プル3x10", text: "トレ: ベンチ4x8・プル3x10" } }
-      ],
-    },
+// 列順が入れ替わっていてもマッピングを作って吸収
+function buildHeaderMap(tokensRaw) {
+  const map = new Map(); // 正規化名 -> index
+  tokensRaw.forEach((t, i) => {
+    const k = normalizeHeaderToken(t);
+    if (!map.has(k)) map.set(k, i);
   });
+  // 少なくとも先頭5列（week..text）が揃えば採用
+  const essential = ["week", "day", "kind", "slot", "text"];
+  const hasEssential = essential.every((k) => map.has(k));
+  if (!hasEssential) return null;
+
+  // 期待列の → ソース列index（なければ -1）
+  const mapper = EXPECTED.map((k) => (map.has(k) ? map.get(k) : -1));
+  return mapper;
 }
 
-module.exports = {
-  handleEvent,
-  getTodayMenuText,
-  getTodaySlotText,
-  getLastUserId: () => LAST_USER_ID
-};
+// ヘッダー行かどうか判定（柔らかめ）
+function looksLikeHeaderRow(cols, mapper) {
+  if (!cols || cols.length < 2) return false;
+  const a = norm(cols[mapper?.[0] ?? 0]);
+  const b = norm(cols[mapper?.[1] ?? 1]);
+  return (a === "week" || a === "day" || a === "week day") && (b === "day" || b === "kind");
+}
+
+/* ===== CSV/TSV/WS クレンジング（強化版） ===== */
+function cleanseCsv(raw) {
+  const csv = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/, "").trim();
+  const lines = csv.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  if (!lines.length) return { rows: [], delimInfo: { delim: ",", regex: /,/ }, mapper: null };
+
+  const delimInfo = detectDelimiterFlexible(lines[0]);
+  const headerRaw = lines[0].split(delimInfo.regex);
+  const mapper = buildHeaderMap(headerRaw);
+
+  if (!mapper) {
+    console.warn("[cleanseCsv] header unresolved:", headerRaw);
+    // ここで throw せず、上から5列目までを仮想マッピングとして使う（Week..Textのみ）
+    const fallback = headerRaw.slice(0, 5).map((_, i) => i);
+    while (fallback.length < EXPECTED.length) fallback.push(-1);
+    return { rows: lines.slice(1), delimInfo, mapper: fallback };
+  }
+
+  // 本文（途中の二重ヘッダーは除去）
+  const body = lines.slice(1).filter((line) => {
+    const cols = line.split(delimInfo.regex);
+    return !looksLikeHeaderRow(cols, mapper);
+  });
+
+  if (body.length !== 35) {
+    console.warn(`[cleanseCsv] rows expected=35 actual=${body.length}`);
+  }
+  return { rows: body, delimInfo, mapper };
+}
+
+/* ===== 週次生成（Logs反映） ===== */
+async function generateNextWeekWithGPT(getWeekAndDayJST) {
+  const { week } = getWeekAndDayJST(process.env.START_DATE);
+  const nextWeek = week + 1;
+
+  const { sheet, rows, idx } = await loadMealPlan();
+  const exists = rows.some((r) => String(r._rawData[idx.Week]).trim() === String(nextWeek));
+  if (exists) return { created: 0, skipped: true, week: nextWeek };
+
+  // 現週の要約
+  const thisWeekRows = rows.filter((r) => String(r._rawData[idx.Week]).trim() === String(week));
+  const brief = thisWeekRows.slice(0, 50).map((r) => {
+    return [
+      String(r._rawData[idx.Day]).trim(),
+      String(r._rawData[idx.Kind]).trim(),
+      String(r._rawData[idx.Slot]).trim(),
+      String(r._rawData[idx.Text]).trim(),
+      String(r._rawData[idx.Calories]).trim(),
+      String(r._rawData[idx.P]).trim(),
+      String(r._rawData[idx.F]).trim(),
+      String(r._rawData[idx.C]).trim(),
+    ].join("|");
+  }).join("\n");
+
+  // 直近ログ（10日）
+  const recentLogs = await getRecentLogs(10);
+  const trainLogs = recentLogs.filter((x) => x.Kind === "Training");
+  const mealLogs  = recentLogs.filter((x) => x.Kind === "Meal");
+  const trainBrief = trainLogs.map((x) => `- ${x.Date} ${x.Slot}: ${x.Text}`).join("\n") || "- 直近トレ記録なし";
+  const mealBrief  = mealLogs.slice(-7).map((x) => `- ${x.Date} ${x.Slot}: ${x.Text}`).join("\n");
+
+  const prompt = `あなたは管理栄養士兼パーソナルトレーナーです。
+28歳男性 170cm/80kg、減量フェーズ。好み：刺身中心、パプリカ/ピーマン不可。朝ジム。PFCは高タンパク・中〜低脂質・適量炭水化物。夜は糖質控えめ。
+
+【直近のMealPlan（参考）】
+Day|Kind|Slot|Text|kcal|P|F|C
+${brief}
+
+【直近の自由入力ログ（Training抜粋）】
+${trainBrief}
+
+【直近の自由入力ログ（Meal一部）】
+${mealBrief}
+
+次週（Week=${nextWeek}）の7日分（Meal: 朝/昼/夜/就寝、Training: ジム or 休養）を **CSV** で出力。
+列は固定：Week,Day,Kind,Slot,Text,Calories,P,F,C,Tips
+
+ルール：
+- Dayは Mon,Tue,Wed,Thu,Fri,Sat,Sun
+- Kindは Meal / Training
+- Slotは Mealなら「朝/昼/夜/就寝」、Trainingなら「ジム」または「休養」
+- Text/Tipsは日本語（**カンマは使わず**「・」等で表現）
+- Calories,P,F,C は整数（空欄可だが原則入れる）
+- 7日分の Meal(4×7=28) と Training(1×7=7) の合計35行
+- 1行目は上記ヘッダー。以降に35行。
+- **Training の Text は具体的な種目・回数/時間**（例：胸：ベンチ4x8・インクラインDB3x12・HIIT10分）
+- 部位ローテーション（胸/背/脚/肩/腕/休養）
+`;
+
+  const res = await withBackoff(() =>
+    openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.2,
+      messages: [{ role: "user", content: prompt }],
+    })
+  );
+
+  const raw = (res.choices?.[0]?.message?.content || "").trim();
+  const { rows: filtered, delimInfo, mapper } = cleanseCsv(raw);
+
+  const toInsert = [];
+  for (const line of filtered) {
+    const colsSrc = line.split(delimInfo.regex);
+    // マッピングして期待順に並べ替え
+    const cols = EXPECTED.map((_, i) => {
+      const srcIdx = mapper[i];
+      return srcIdx >= 0 ? (colsSrc[srcIdx] ?? "").trim() : "";
+    });
+
+    // ヘッダー二重混入掃除
+    if (looksLikeHeaderRow(cols, null)) continue;
+
+    if (cols.length < 10) continue;
+    const row = {
+      Week: cols[0], Day: cols[1], Kind: cols[2], Slot: cols[3],
+      Text: cols[4], Calories: cols[5], P: cols[6], F: cols[7], C: cols[8], Tips: cols[9],
+    };
+    if (!row.Week || !row.Day || !row.Kind || !row.Slot || !row.Text) continue;
+    toInsert.push(row);
+  }
+
+  let created = 0;
+  if (toInsert.length) {
+    await chunkAddRows(sheet, toInsert);
+    created = toInsert.length;
+  }
+  return { created, skipped: false, week: nextWeek };
+}
+
+module.exports = { generateNextWeekWithGPT };
