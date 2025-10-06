@@ -1,7 +1,7 @@
 // lib/llm.js
 const OpenAI = require("openai");
-const { withBackoff } = require("./utils");
-const { loadMealPlan, getRecentLogs, chunkAddRows } = require("./sheets");
+const { withBackoff } = require("../lib/utils");
+const { loadMealPlan, getRecentLogs, chunkAddRows } = require("../lib/sheets");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
