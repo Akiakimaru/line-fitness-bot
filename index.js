@@ -492,7 +492,7 @@ app.get("/admin/auto-gen", async (req, res) => {
 
 // スロットPush送信（?slot=朝/昼/夜/就寝）
 app.get("/admin/push-slot", async (req, res) => {
-  if (req.query.key !== ADMIN_KEY) return res.status(401).send "unauthorized";
+  if (req.query.key !== ADMIN_KEY) return res.status(401).send("unauthorized");
   const slot = req.query.slot || "昼";
   try {
     await pushSlot(slot);
