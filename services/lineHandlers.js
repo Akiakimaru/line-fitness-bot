@@ -5,9 +5,9 @@ const { loadMealPlan, getRecentLogs, chunkAddRows } = require("./sheets");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-/* ===== ヘッダー検出 & 正規化 ===== */
+/* ================= ヘッダー/区切り検出（強化） ================= */
 
-// 候補デリミタを全チェック（カウント多いものを採用。両方ゼロなら空白連続区切り）
+// 区切り候補を走査（最も出現数が多いものを採用）。該当なしは「連続空白」。
 function detectDelimiterFlexible(line) {
   const cand = [
     { d: "\t", n: (line.match(/\t/g) || []).length },
@@ -19,20 +19,20 @@ function detectDelimiterFlexible(line) {
   ];
   cand.sort((a, b) => b.n - a.n);
   if (cand[0].n > 0) return { delim: cand[0].d, regex: new RegExp(`\\${cand[0].d}`) };
-  // どれも出ていない→空白連続で区切る
+  // どれも見つからない場合はスペース2個以上を区切りにする
   return { delim: "WS", regex: /\s{2,}/ };
 }
 
 function norm(tok) {
   return String(tok || "")
-    .replace(/^\uFEFF/, "")   // BOM
-    .replace(/^["']|["']$/g, "") // 両端の引用符
+    .replace(/^\uFEFF/, "")        // BOM
+    .replace(/^["']|["']$/g, "")   // 先頭/末尾の引用符
     .trim()
     .replace(/\s+/g, " ")
     .toLowerCase();
 }
 
-// 英日含む別名をサポート
+// 英日/別名を正規化
 function normalizeHeaderToken(tok) {
   const t = norm(tok);
   if (["week", "週", "第"].includes(t)) return "week";
@@ -50,32 +50,28 @@ function normalizeHeaderToken(tok) {
 
 const EXPECTED = ["week", "day", "kind", "slot", "text", "calories", "p", "f", "c", "tips"];
 
-// 列順が入れ替わっていてもマッピングを作って吸収
+// 列名から「期待→実列index」マッピングを作る（順不同対応）
 function buildHeaderMap(tokensRaw) {
   const map = new Map(); // 正規化名 -> index
   tokensRaw.forEach((t, i) => {
     const k = normalizeHeaderToken(t);
     if (!map.has(k)) map.set(k, i);
   });
-  // 少なくとも先頭5列（week..text）が揃えば採用
   const essential = ["week", "day", "kind", "slot", "text"];
   const hasEssential = essential.every((k) => map.has(k));
   if (!hasEssential) return null;
-
-  // 期待列の → ソース列index（なければ -1）
-  const mapper = EXPECTED.map((k) => (map.has(k) ? map.get(k) : -1));
-  return mapper;
+  return EXPECTED.map((k) => (map.has(k) ? map.get(k) : -1));
 }
 
-// ヘッダー行かどうか判定（柔らかめ）
+// 行が（正規化後に）ヘッダー風かどうか
 function looksLikeHeaderRow(cols, mapper) {
   if (!cols || cols.length < 2) return false;
   const a = norm(cols[mapper?.[0] ?? 0]);
   const b = norm(cols[mapper?.[1] ?? 1]);
-  return (a === "week" || a === "day" || a === "week day") && (b === "day" || b === "kind");
+  return (a === "week" || a === "day") && (b === "day" || b === "kind");
 }
 
-/* ===== CSV/TSV/WS クレンジング（強化版） ===== */
+/* ================= CSV/TSV/WS クレンジング ================= */
 function cleanseCsv(raw) {
   const csv = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/, "").trim();
   const lines = csv.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
@@ -87,13 +83,13 @@ function cleanseCsv(raw) {
 
   if (!mapper) {
     console.warn("[cleanseCsv] header unresolved:", headerRaw);
-    // ここで throw せず、上から5列目までを仮想マッピングとして使う（Week..Textのみ）
+    // フェールソフト：先頭5列を Week..Text とみなす暫定マッピングを作る
     const fallback = headerRaw.slice(0, 5).map((_, i) => i);
     while (fallback.length < EXPECTED.length) fallback.push(-1);
     return { rows: lines.slice(1), delimInfo, mapper: fallback };
   }
 
-  // 本文（途中の二重ヘッダーは除去）
+  // 本文抽出（二重ヘッダー掃除）
   const body = lines.slice(1).filter((line) => {
     const cols = line.split(delimInfo.regex);
     return !looksLikeHeaderRow(cols, mapper);
@@ -105,7 +101,7 @@ function cleanseCsv(raw) {
   return { rows: body, delimInfo, mapper };
 }
 
-/* ===== 週次生成（Logs反映） ===== */
+/* ================= 週次生成（Logs反映） ================= */
 async function generateNextWeekWithGPT(getWeekAndDayJST) {
   const { week } = getWeekAndDayJST(process.env.START_DATE);
   const nextWeek = week + 1;
@@ -114,7 +110,7 @@ async function generateNextWeekWithGPT(getWeekAndDayJST) {
   const exists = rows.some((r) => String(r._rawData[idx.Week]).trim() === String(nextWeek));
   if (exists) return { created: 0, skipped: true, week: nextWeek };
 
-  // 現週の要約
+  // 現週の簡易要約
   const thisWeekRows = rows.filter((r) => String(r._rawData[idx.Week]).trim() === String(week));
   const brief = thisWeekRows.slice(0, 50).map((r) => {
     return [
@@ -178,13 +174,14 @@ ${mealBrief}
   const toInsert = [];
   for (const line of filtered) {
     const colsSrc = line.split(delimInfo.regex);
-    // マッピングして期待順に並べ替え
+
+    // マッピングで期待順に並べ替え（欠損列は空文字）
     const cols = EXPECTED.map((_, i) => {
       const srcIdx = mapper[i];
       return srcIdx >= 0 ? (colsSrc[srcIdx] ?? "").trim() : "";
     });
 
-    // ヘッダー二重混入掃除
+    // 二重ヘッダー掃除
     if (looksLikeHeaderRow(cols, null)) continue;
 
     if (cols.length < 10) continue;
