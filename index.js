@@ -1,3 +1,4 @@
+// server.js
 require("dotenv").config();
 const express = require("express");
 const line = require("@line/bot-sdk");
@@ -33,10 +34,36 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ADMIN_KEY = process.env.ADMIN_KEY || ""; // 管理用キー
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ------------------------------------------------------------------
+ * 1-B: Google API 429 対策（指数バックオフ共通ラッパ）
+ * 対象: Google Sheets の全I/Oを withBackoff で包む
+ * ------------------------------------------------------------------ */
+async function withBackoff(op, { tries = 5, baseMs = 400 } = {}) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await op();
+    } catch (e) {
+      lastErr = e;
+      const status = e?.response?.status || e?.code || "";
+      const msg = String(e || "");
+      const retryable =
+        [429, 500, 502, 503, 504].includes(status) ||
+        /rate|quota|temporar|EAI_AGAIN/i.test(msg);
+      if (!retryable) throw e;
+      const wait = baseMs * Math.pow(2, i) + Math.floor(Math.random() * 150);
+      console.warn(`[backoff] attempt=${i + 1}/${tries} wait=${wait}ms reason=${status || msg}`);
+      await sleep(wait);
+    }
+  }
+  throw lastErr;
+}
+
 async function chunkAddRows(sheet, rows, chunkSize = 50, delayMs = 500) {
   for (let i = 0; i < rows.length; i += chunkSize) {
     const slice = rows.slice(i, i + chunkSize);
-    await sheet.addRows(slice);
+    await withBackoff(() => sheet.addRows(slice));
     if (i + chunkSize < rows.length) await sleep(delayMs);
   }
 }
@@ -52,20 +79,20 @@ function getWeekAndDayJST() {
   const now = nowJST();
   const diffDays = Math.floor((now - start) / (1000 * 60 * 60 * 24));
   const week = Math.max(1, Math.floor(diffDays / 7) + 1);
-  const day = DAYS[now.getUTCDay()]; // JSTへ+9h後の曜日
+  const day = DAYS[now.getUTCDay()]; // JST化済みDateに対してUTC曜日を参照
   return { week, day, jstISO: now.toISOString() };
 }
 
 /* ================= State ================= */
-let LAST_USER_ID = null;     // Push送信用（単独運用想定）
-let editContext = null;      // { slot, draft? }
+let LAST_USER_ID = null; // Push送信用（単独運用想定）
+let editContext = null; // { slot, draft? }
 
 /* ================= Sheet Access (header-indexed) ================= */
 async function loadMealPlan() {
-  await doc.loadInfo();
+  await withBackoff(() => doc.loadInfo());
   const sheet = doc.sheetsByTitle["MealPlan"];
   if (!sheet) throw new Error("MealPlan sheet not found");
-  const rows = await sheet.getRows();
+  const rows = await withBackoff(() => sheet.getRows());
 
   const H = sheet.headerValues; // ["Week","Day","Kind","Slot","Text","Calories","P","F","C","Tips"]
   const idx = {
@@ -97,6 +124,7 @@ app.get("/debug-week", (_req, res) => {
   res.json({ START_DATE: process.env.START_DATE, ...getWeekAndDayJST() });
 });
 app.get("/debug-today", async (_req, res) => {
+  const t0 = Date.now();
   try {
     const { week, day } = getWeekAndDayJST();
     const { rows, idx, headers } = await loadMealPlan();
@@ -107,7 +135,14 @@ app.get("/debug-today", async (_req, res) => {
           cell(r, idx.Day).toLowerCase() === day.toLowerCase()
       )
       .map((r) => r._rawData);
-    res.json({ target: { week, day }, headers, hitCount: matches.length, matches });
+    res.json({
+      target: { week, day },
+      headers,
+      hitCount: matches.length,
+      matches,
+      latencyMs: Date.now() - t0,
+      sheetRowCount: rows.length,
+    });
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
@@ -239,7 +274,7 @@ async function handleEvent(e) {
       return client.replyMessage(e.replyToken, { type: "text", text: "該当スロットが見つかりませんでした。" });
     }
     target._rawData[idx.Text] = draft;
-    await target.save();
+    await withBackoff(() => target.save());
     return client.replyMessage(e.replyToken, {
       type: "text",
       text: `更新完了 ✅\n【${slot}】\n${draft}`
@@ -282,18 +317,11 @@ cron.schedule("0 12 * * *", () => pushSlot("昼"), { timezone: TZ });
 cron.schedule("0 19 * * *", () => pushSlot("夜"), { timezone: TZ });
 cron.schedule("0 23 * * *", () => pushSlot("就寝"), { timezone: TZ });
 
-/* ================= GPT: 次週メニュー自動生成（保存時ヘッダー弾き内蔵） ================= */
+/* ================= GPT: 次週メニュー自動生成 ================= */
 function looksLikeHeaderRow(cols) {
-  // 先頭～数列がヘッダーと一致するか簡易判定
   if (!cols || cols.length < 2) return false;
-  const head = cols.slice(0, 5).map(s => String(s).trim());
-  return (
-    head[0] === "Week" &&
-    head[1] === "Day" &&
-    head[2] === "Kind" &&
-    head[3] === "Slot" &&
-    head[4] === "Text"
-  );
+  const head = cols.slice(0, 5).map((s) => String(s).trim());
+  return head[0] === "Week" && head[1] === "Day" && head[2] === "Kind" && head[3] === "Slot" && head[4] === "Text";
 }
 
 async function generateNextWeekWithGPT() {
@@ -301,11 +329,9 @@ async function generateNextWeekWithGPT() {
   const nextWeek = week + 1;
 
   const { sheet, rows, idx } = await loadMealPlan();
-  // 既に次週があるなら skip（冪等）
   const exists = rows.some((r) => cell(r, idx.Week) === String(nextWeek));
   if (exists) return { created: 0, skipped: true, week: nextWeek };
 
-  // 直近の週を要約してプロンプト安定化
   const thisWeekRows = rows.filter((r) => cell(r, idx.Week) === String(week));
   const brief = thisWeekRows.slice(0, 50).map((r) => {
     return [
@@ -336,23 +362,48 @@ ${brief}
 - 7日分の Meal(4行×7日=28行) と Training(1行×7日=7行) の合計35行
 - 一行目はヘッダー（上記列名）。以降に35行。`;
 
-  const res = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }],
-    temperature: 0.2,
-  });
+  const res = await withBackoff(() =>
+    openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2,
+    })
+  );
 
-  const csv = (res.choices?.[0]?.message?.content || "").trim();
-  const lines = csv.split(/\r?\n/).filter(Boolean);
+  /* ------------------------------------------------------------------
+   * 1-A: 生成結果の厳格クレンジング
+   * - コードフェンス除去
+   * - 先頭ヘッダー検証
+   * - 本文中の二重ヘッダー除去
+   * - 想定行数チェック（35）
+   * ------------------------------------------------------------------ */
+  const raw = (res.choices?.[0]?.message?.content || "").trim();
+  const csv = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/, "").trim();
+  const lines = csv.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   if (!lines.length) return { created: 0, skipped: false, week: nextWeek, warn: "empty csv" };
 
-  // 先頭ヘッダー以外に紛れたヘッダーも除去して追加
-  const body = lines.slice(1);
-  const toInsert = [];
-  for (const line of body) {
-    const cols = line.split(",");
-    if (looksLikeHeaderRow(cols)) continue; // 途中ヘッダー掃除（保存時の安全弁）
+  // header check
+  const header = lines[0].split(",").map((s) => s.trim());
+  const expected = ["Week", "Day", "Kind", "Slot", "Text", "Calories", "P", "F", "C", "Tips"];
+  if (header.join("|") !== expected.join("|")) {
+    throw new Error("CSV header mismatch");
+  }
 
+  // clean body
+  const body = lines.slice(1);
+  const filtered = body.filter((line) => {
+    const cols = line.split(",");
+    return !(cols[0] === "Week" && cols[1] === "Day"); // 二重ヘッダー掃除
+  });
+
+  if (filtered.length !== 35) {
+    console.warn(`[warn] expected 35 rows, got ${filtered.length}`);
+  }
+
+  const toInsert = [];
+  for (const line of filtered) {
+    const cols = line.split(",");
+    if (looksLikeHeaderRow(cols)) continue; // 追加の安全弁
     if (cols.length < 10) continue;
     const row = {
       Week: cols[0], Day: cols[1], Kind: cols[2], Slot: cols[3],
@@ -361,9 +412,10 @@ ${brief}
     if (!row.Week || !row.Day || !row.Kind || !row.Slot || !row.Text) continue;
     toInsert.push(row);
   }
+
   let created = 0;
   if (toInsert.length) {
-    await chunkAddRows(sheet, toInsert); // バッチ追加
+    await chunkAddRows(sheet, toInsert); // バッチ追加（内部でbackoff）
     created = toInsert.length;
   }
   return { created, skipped: false, week: nextWeek };
@@ -393,18 +445,14 @@ async function archiveOldWeeksBatch(keepRecentN = 4) {
   const cutoff = week - keepRecentN;
   if (cutoff < 1) return { moved: 0, kept: rows.length, cutoff, week };
 
-  // 分類：移動対象／残す対象（ヘッダー紛れの掃除も実施）
   const toMove = [];
   const toKeep = [];
   for (const r of rows) {
     const wStr = cell(r, idx.Week);
     const dStr = cell(r, idx.Day);
-    // ヘッダーっぽい行（Week,Day,Kind,Slot,Text...）は常に除外 → toKeepへ入れない（=掃除）
     if (wStr === "Week" && dStr === "Day") {
-      // ヘッダー行混入を“捨てる”扱いにする（Archiveにも入れない）
-      continue;
+      continue; // ヘッダー紛れは捨てる
     }
-
     const w = parseInt(wStr || "0", 10);
     if (!Number.isFinite(w) || w <= 0) { toKeep.push(r); continue; }
     if (w <= cutoff) toMove.push(r);
@@ -413,30 +461,29 @@ async function archiveOldWeeksBatch(keepRecentN = 4) {
 
   if (!toMove.length) return { moved: 0, kept: toKeep.length, cutoff, week };
 
-  // アーカイブシート作成/取得
   const now = nowJST();
   const name = `Archive_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
   let archive = doc.sheetsByTitle[name];
   if (!archive) {
-    archive = await doc.addSheet({ title: name, headerValues: headers });
+    archive = await withBackoff(() =>
+      doc.addSheet({ title: name, headerValues: headers })
+    );
   }
 
-  // 1) アーカイブに一括追加（ヘッダー不要）
   const movePayload = toMove.map((r) => {
     const o = {};
     headers.forEach((h, i) => { o[h] = cell(r, i); });
     return o;
   });
-  await chunkAddRows(archive, movePayload); // バッチ追加
+  await chunkAddRows(archive, movePayload);
 
-  // 2) MealPlan を再構築（残す行のみで再生成、紛れヘッダーは既に除去済）
   const keepPayload = toKeep.map((r) => {
     const o = {};
     headers.forEach((h, i) => { o[h] = cell(r, i); });
     return o;
   });
-  await sheet.clear();
-  await sheet.setHeaderRow(headers);
+  await withBackoff(() => sheet.clear());
+  await withBackoff(() => sheet.setHeaderRow(headers));
   if (keepPayload.length) {
     await chunkAddRows(sheet, keepPayload);
   }
@@ -510,14 +557,13 @@ app.get("/admin/archive", async (req, res) => {
     const dry = req.query.dry === "1";
 
     if (dry) {
-      // ドライランは件数だけ計算（かつヘッダー紛れは候補に含めない）
       const { week } = getWeekAndDayJST();
       const { rows, idx } = await loadMealPlan();
       const cutoff = week - keep;
       const candidate = rows.filter(r => {
         const wStr = cell(r, idx.Week);
         const dStr = cell(r, idx.Day);
-        if (wStr === "Week" && dStr === "Day") return false; // ヘッダー掃除
+        if (wStr === "Week" && dStr === "Day") return false;
         const w = parseInt(wStr || "0", 10);
         return Number.isFinite(w) && w > 0 && w <= cutoff;
       }).length;
@@ -540,6 +586,27 @@ app.get("/admin/today", async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
+});
+
+/* ------------------------------------------------------------------
+ * 1-C: Render/ENV の整合チェックAPI
+ * ------------------------------------------------------------------ */
+app.get("/admin/env-check", (req, res) => {
+  if (req.query.key !== ADMIN_KEY) return res.status(401).send("unauthorized");
+  const keys = [
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_CHANNEL_SECRET",
+    "GOOGLE_SHEET_ID",
+    "GOOGLE_SERVICE_ACCOUNT_JSON",
+    "OPENAI_API_KEY",
+    "START_DATE",
+  ];
+  const report = {};
+  for (const k of keys) {
+    const v = process.env[k] || "";
+    report[k] = { set: !!v, sample: v ? (v.length > 12 ? v.slice(0, 6) + "..." : "***") : "" };
+  }
+  res.json({ ok: true, report });
 });
 
 /* ================= 起動 ================= */
