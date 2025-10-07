@@ -1,54 +1,40 @@
-// index.js (entry)
+// index.js
 require("dotenv").config();
 const express = require("express");
 const line = require("@line/bot-sdk");
-const cron = require("node-cron");
-
-const { TZ, getWeekAndDayJST } = require("./lib/utils");
-const { getTodaySlotText } = require("./services/lineHandlers");
-const makeAdminRoutes = require("./routes/admin");
-const { handleEvent, getLastUserId } = require("./services/lineHandlers");
+const { handleEvent } = require("./services/lineHandlers");
+const { generateNextWeekWithGPT } = require("./lib/llm");
+const { getWeekAndDayJST } = require("./lib/utils");
+const { archiveOldWeeksBatch } = require("./lib/sheets"); // 将来的に利用
+require("./services/scheduler"); // cronジョブを登録（pushSlot自動実行）
 
 const app = express();
 
-/* LINE client */
-const lineConfig = {
+/* ==================== LINE設定 ==================== */
+const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
-const client = new line.Client(lineConfig);
+const client = new line.Client(config);
 
-/* Health */
-app.get("/", (_req, res) => res.send("LINE Fitness Bot OK"));
-
-/* Webhook */
-app.post("/webhook", line.middleware(lineConfig), async (req, res) => {
+/* ==================== Webhook ==================== */
+app.post("/webhook", line.middleware(config), async (req, res) => {
   try {
-    await Promise.all((req.body.events || []).map((e) => handleEvent(e, client)));
+    const events = req.body.events || [];
+    await Promise.all(events.map((event) => handleEvent(event)));
     res.sendStatus(200);
-  } catch (e) {
-    console.error("Webhook error", e);
-    res.sendStatus(500);
+  } catch (err) {
+    console.error("Webhook Error:", err);
+    res.status(500).send("Error");
   }
 });
 
-/* Push helpers */
-async function pushSlot(slotLabel) {
-  const userId = getLastUserId();
-  if (!userId) return;
-  const txt = await getTodaySlotText(slotLabel);
-  if (txt) await client.pushMessage(userId, { type: "text", text: txt });
-}
+/* ==================== 管理・デバッグ系 ==================== */
+const adminRouter = require("./routes/admin");
+app.use("/", adminRouter);
 
-/* Cron */
-cron.schedule("0 7 * * *", () => pushSlot("朝"), { timezone: TZ });
-cron.schedule("0 12 * * *", () => pushSlot("昼"), { timezone: TZ });
-cron.schedule("0 19 * * *", () => pushSlot("夜"), { timezone: TZ });
-cron.schedule("0 23 * * *", () => pushSlot("就寝"), { timezone: TZ });
-
-/* Admin & Debug routes */
-app.use(makeAdminRoutes(process.env.ADMIN_KEY || "", client, getLastUserId, pushSlot));
-
-/* Start */
+/* ==================== 起動 ==================== */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on :${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on :${PORT}`);
+});
