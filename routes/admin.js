@@ -7,11 +7,8 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "";
 const { getWeekAndDayJST } = require("../lib/utils");
 const { loadMealPlan } = require("../lib/sheets");
 const { generateNextWeekWithGPT } = require("../lib/llm");
-
-// ✅ Usersシートに保存された全ユーザーへPUSHする実装
-const { pushSlot } = require("../services/scheduler");
-// 今日のメニュー全文（既存の見た目を維持したい場合）
-const { getTodayMenuText } = require("../services/lineHandlers");
+const { pushSlot } = require("../services/scheduler"); // ← Usersシートから全員にPUSH
+const { getTodayMenuText } = require("../services/lineHandlers"); // 表示用
 
 /** ヘルスチェック */
 router.get("/", (_req, res) => res.send("LINE Fitness Bot OK"));
@@ -48,12 +45,12 @@ router.get("/admin/auto-gen", async (req, res) => {
   }
 });
 
-/** スロットPush送信（Usersシートの全UserIdに送信） ?slot=朝/昼/夜/就寝 */
+/** スロットPush送信（Usersの全UserIdへ送信） ?slot=朝/昼/夜/就寝 */
 router.get("/admin/push-slot", async (req, res) => {
   if (req.query.key !== ADMIN_KEY) return res.status(401).send("unauthorized");
   const slot = (req.query.slot || "").trim() || "昼";
   try {
-    await pushSlot(slot);
+    await pushSlot(slot); // ★ 必ず await。バックグラウンド化させない
     res.json({ ok: true, slot });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
