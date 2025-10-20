@@ -231,6 +231,29 @@ async function handleEvent(e, client) {
       text: "ジム記録を入力してください（複数行可）。\n例:\nベンチプレス 50*10 60*8\nトレッドミル 8分2.8km\n※ 1行目に時刻を含めたい場合は「ジム 07:10」と送ってから本文を入力。",
     });
   }
+  if (msg.startsWith("体重")) {
+      const parts = msg.split(/\s+/);
+      const val = parseFloat(parts[1]);
+      if (!isNaN(val)) {
+        const rec = {
+          DateTime: nowJST().toISOString(),
+          UserId: e.source.userId,
+          Kind: "Weight",
+          Text: String(val),
+          MetaJSON: JSON.stringify({ unit: "kg" }),
+        };
+        await appendLogRecord(rec);
+        return client.replyMessage(e.replyToken, {
+          type: "text",
+          text: `⚖️ 体重を記録しました：${val}kg`,
+        });
+      } else {
+        return client.replyMessage(e.replyToken, {
+          type: "text",
+          text: "体重を入力してください（例: 体重 79.2）",
+        });
+      }
+    }
 
   // 3) 既存コマンド
   if (msg.includes("今日のメニュー")) {
