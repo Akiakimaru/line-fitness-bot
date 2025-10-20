@@ -1,16 +1,10 @@
 // services/lineHandlers.js
-const line = require("@line/bot-sdk");
 const { getWeekAndDayJST, todayYMDJST, nowJST } = require("../lib/utils");
-const { loadMealPlan } = require("../lib/sheets");
-const { registerUser, appendLogRecord } = require("../lib/sheets");
-
-// 既存のクライアントは index.js 側から渡される想定
-// ここでは handleEvent / getTodayMenuText をエクスポート
+const { loadMealPlan, registerUser, appendLogRecord } = require("../lib/sheets");
 
 /* ================= ユーティリティ ================= */
 
 function normalizeTimeToken(t) {
-  // "9:5" → "09:05"
   const m = String(t || "").match(/^(\d{1,2}):(\d{1,2})$/);
   if (!m) return null;
   const hh = String(parseInt(m[1], 10)).padStart(2, "0");
@@ -19,23 +13,20 @@ function normalizeTimeToken(t) {
   return `${hh}:${mm}`;
 }
 
-/** 1行目に時刻があれば取り出す。例:
- *  "食事 12:30\n鶏むね、ヨーグルト"
- *  "ジム 7:05\nベンチ…"
- *  戻り値: { time: "HH:MM" | null, body: "…本文…" }
- */
+/** 1行目/本文先頭に時刻(HH:MM)があれば取り出す */
 function extractTimeAndBody(raw) {
-  const lines = (raw || "").split(/\r?\n/);
-  let header = lines[0].trim();
+  if (!raw) return { time: null, body: "" };
+  const lines = raw.split(/\r?\n/);
+  let header = (lines[0] || "").trim();
   let body = lines.slice(1).join("\n").trim();
 
-  // パターンA: "<cmd> HH:MM"
+  // パターンA: 1行目末尾に HH:MM
   const mA = header.match(/\b(\d{1,2}:\d{1,2})\b/);
   if (mA) {
     const t = normalizeTimeToken(mA[1]);
     if (t) return { time: t, body };
   }
-  // パターンB: 本文先頭に HH:MM があるなら時刻として採用
+  // パターンB: 本文先頭が HH:MM
   const mB = body.match(/^\s*(\d{1,2}:\d{1,2})\s*[\n ]/);
   if (mB) {
     const t = normalizeTimeToken(mB[1]);
@@ -44,52 +35,66 @@ function extractTimeAndBody(raw) {
       return { time: t, body };
     }
   }
-  return { time: null, body: (raw || "").split(/\r?\n/).slice(1).join("\n").trim() };
+  return { time: null, body };
 }
 
-/* ==== ジム入力の簡易パーサ =======================================
- * 入力例:
- *   ベンチプレス 50*10 60*8
- *   サイドレイズ 3x15
- *   トレッドミル 8分2.8km
- * 複数行OK。行ごとに1種目。
- * 返却: [{name, sets:[{w,reps}], minutes, distanceKm, raw}]
- * ================================================================= */
+/** 先頭コマンドと本文を抽出
+ *  入力例:
+ *   - "食事\nヨーグルト"
+ *   - "食事 12:30\n鶏むね"
+ *   - "食事 ヨーグルト"
+ *   - "ジム\nベンチ 50*10"
+ *   - "体重 79.2"
+ */
+function parseCommandAndBody(msg) {
+  const lines = msg.split(/\r?\n/);
+  const head = lines[0].trim();
+  const bodyLines = lines.slice(1);
+  // 先頭ワード（食事/ジム/体重）と残り
+  const m = head.match(/^(食事|ジム|体重)(?:\s+(.*))?$/);
+  if (!m) return null;
+  const cmd = m[1];
+  const tail = (m[2] || "").trim(); // 同一行の追加情報（時刻や数値、本文の一部）
+
+  // 本文の合成（同一行の tail が本文か/時刻かは後段で判定）
+  let body = bodyLines.join("\n").trim();
+  if (!body && tail) {
+    body = tail; // 1行式（例: "食事 ヨーグルト" / "体重 79.2"）
+  }
+  return { cmd, headTail: tail, body };
+}
+
+/* ==== ジム入力の簡易パーサ（メタ情報用） ========================= */
 function parseGymText(text) {
   const lines = (text || "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   const out = [];
 
   for (const line of lines) {
-    const nameMatch = line.match(/^[^\d]+/); // 先頭の非数字を種目名とみなす
+    const nameMatch = line.match(/^[^\d]+/);
     const name = nameMatch ? nameMatch[0].trim() : "不明種目";
     const rest = line.slice(name.length).trim();
 
-    // パターン: 50*10 60*8 / 3x15 など
     const tokens = rest.split(/[,\s]+/).filter(Boolean);
     const sets = [];
     let minutes = null;
     let distanceKm = null;
 
     for (const tk of tokens) {
-      // 8分 / 10分
       const mMin = tk.match(/^(\d+)\s*分$/);
       if (mMin) {
         minutes = parseInt(mMin[1], 10);
         continue;
       }
-      // 2.8km
       const mKm = tk.match(/^(\d+(?:\.\d+)?)\s*km$/i);
       if (mKm) {
         distanceKm = parseFloat(mKm[1]);
         continue;
       }
-      // 50*10 or 50x10
       const mWR = tk.match(/^(\d+(?:\.\d+)?)[x\*](\d+)$/i);
       if (mWR) {
         sets.push({ w: parseFloat(mWR[1]), reps: parseInt(mWR[2], 10) });
         continue;
       }
-      // 3x15 のような「セットx回数」（重量なし）
       const mSR = tk.match(/^(\d+)[x\*](\d+)$/i);
       if (mSR) {
         sets.push({ w: null, reps: parseInt(mSR[2], 10), sets: parseInt(mSR[1], 10) });
@@ -139,7 +144,7 @@ async function getTodayMenuText() {
   return text;
 }
 
-/* ================= ログ入力: 食事/ジム ================= */
+/* ================= ログ入力：ワンショット & 2段階両対応 ================= */
 
 const PENDING = new Map(); // userId -> {mode: 'meal'|'gym', timeHHMM|null}
 
@@ -165,7 +170,6 @@ async function handlePendingInput(userId, text, client, replyToken) {
   }
 
   if (st.mode === "meal") {
-    // そのままテキストを保存
     const rec = {
       DateTime: ts.toISOString(),
       UserId: userId,
@@ -202,38 +206,24 @@ async function handlePendingInput(userId, text, client, replyToken) {
   return false;
 }
 
-/* ================= LINEイベント ================= */
+/* ================= LINEイベント（メイン） ================= */
 
 async function handleEvent(e, client) {
   if (e?.source?.userId) {
-    // Users に登録/更新
     await registerUser(e.source.userId);
   }
   if (e.type !== "message" || e.message?.type !== "text") return;
 
   const msg = (e.message.text || "").trim();
 
-  // 1) まず pending 中なら本文として処理
-  if (await handlePendingInput(e.source.userId, msg, client, e.replyToken)) return;
+  // 0) ワンショット（1メッセージ完結）を最優先で処理
+  const parsed = parseCommandAndBody(msg);
+  if (parsed) {
+    const { cmd, headTail, body } = parsed;
 
-  // 2) 新形式：コマンド開始「食事」「ジム」
-  if (msg === "食事" || msg.startsWith("食事 ")) {
-    startMealPending(e.source.userId, msg);
-    return client.replyMessage(e.replyToken, {
-      type: "text",
-      text: "食事内容を入力してください（例: 鶏むね肉、ヨーグルト）。\n1行目に時刻を含めたい場合は「食事 12:30」と送ってから本文を入力してください。",
-    });
-  }
-  if (msg === "ジム" || msg.startsWith("ジム ")) {
-    startGymPending(e.source.userId, msg);
-    return client.replyMessage(e.replyToken, {
-      type: "text",
-      text: "ジム記録を入力してください（複数行可）。\n例:\nベンチプレス 50*10 60*8\nトレッドミル 8分2.8km\n※ 1行目に時刻を含めたい場合は「ジム 07:10」と送ってから本文を入力。",
-    });
-  }
-  if (msg.startsWith("体重")) {
-      const parts = msg.split(/\s+/);
-      const val = parseFloat(parts[1]);
+    // 体重ワンショット（例: "体重 79.2" / "体重\n79.2"）
+    if (cmd === "体重") {
+      const val = parseFloat(body || headTail);
       if (!isNaN(val)) {
         const rec = {
           DateTime: nowJST().toISOString(),
@@ -247,21 +237,100 @@ async function handleEvent(e, client) {
           type: "text",
           text: `⚖️ 体重を記録しました：${val}kg`,
         });
+      }
+      // 本文が空なら2段階フローにフォールバック
+      if (!body && !headTail) {
+        // continue to pending handler below
       } else {
         return client.replyMessage(e.replyToken, {
           type: "text",
-          text: "体重を入力してください（例: 体重 79.2）",
+          text: "体重を数値で入力してください（例: 体重 79.2）",
         });
       }
     }
 
-  // 3) 既存コマンド
+    // 食事ワンショット（例: "食事\nヨーグルト" / "食事 ヨーグルト" / "食事 12:30\n鶏むね"）
+    if (cmd === "食事" && body) {
+      const { time, body: mealBody } = extractTimeAndBody(`${cmd} ${headTail}\n${body}`.trim());
+      const jstNow = nowJST();
+      let ts = jstNow;
+      if (time) {
+        const [hh, mm] = time.split(":").map((n) => parseInt(n, 10));
+        ts = new Date(jstNow);
+        ts.setHours(hh, mm, 0, 0);
+      }
+      const rec = {
+        DateTime: ts.toISOString(),
+        UserId: e.source.userId,
+        Kind: "Meal",
+        Text: mealBody.trim(),
+        MetaJSON: JSON.stringify({ time: time || null }),
+      };
+      await appendLogRecord(rec);
+      return client.replyMessage(e.replyToken, {
+        type: "text",
+        text: `🍽 食事ログを保存しました\n${time ? `時刻 ${time}\n` : ""}${mealBody.trim()}`,
+      });
+    }
+
+    // ジムワンショット（例: "ジム\nベンチ 50*10" / "ジム 07:05\nバイク 15分"）
+    if (cmd === "ジム" && body) {
+      const { time, body: gymBody } = extractTimeAndBody(`${cmd} ${headTail}\n${body}`.trim());
+      const jstNow = nowJST();
+      let ts = jstNow;
+      if (time) {
+        const [hh, mm] = time.split(":").map((n) => parseInt(n, 10));
+        ts = new Date(jstNow);
+        ts.setHours(hh, mm, 0, 0);
+      }
+      const parsedGym = parseGymText(gymBody);
+      const rec = {
+        DateTime: ts.toISOString(),
+        UserId: e.source.userId,
+        Kind: "Gym",
+        Text: gymBody.trim(),
+        MetaJSON: JSON.stringify({ time: time || null, parsed: parsedGym }),
+      };
+      await appendLogRecord(rec);
+      return client.replyMessage(e.replyToken, {
+        type: "text",
+        text: `💪 ジムログを保存しました\n${time ? `時刻 ${time}\n` : ""}${gymBody.trim()}`,
+      });
+    }
+
+    // ここまで来たら本文が無いケース（→2段階フロー開始へ）
+    if (cmd === "食事") {
+      startMealPending(e.source.userId, msg);
+      return client.replyMessage(e.replyToken, {
+        type: "text",
+        text: "食事内容を入力してください（例: 鶏むね肉、ヨーグルト）。\n1行目に時刻を含めたい場合は「食事 12:30」と送ってから本文を入力してください。",
+      });
+    }
+    if (cmd === "ジム") {
+      startGymPending(e.source.userId, msg);
+      return client.replyMessage(e.replyToken, {
+        type: "text",
+        text: "ジム記録を入力してください（複数行可）。\n例:\nベンチプレス 50*10 60*8\nトレッドミル 8分2.8km\n※ 1行目に時刻を含めたい場合は「ジム 07:10」と送ってから本文を入力。",
+      });
+    }
+    if (cmd === "体重") {
+      return client.replyMessage(e.replyToken, {
+        type: "text",
+        text: "体重を入力してください（例: 体重 79.2）",
+      });
+    }
+  }
+
+  // 1) pending中なら本文として処理
+  if (await handlePendingInput(e.source.userId, msg, client, e.replyToken)) return;
+
+  // 2) 既存コマンド
   if (msg.includes("今日のメニュー")) {
     const menu = await getTodayMenuText();
     return client.replyMessage(e.replyToken, { type: "text", text: menu });
   }
 
-  // 4) 既存の編集フローや管理コマンドは省略（必要なら以前の実装のまま）
+  // 3) デフォルト応答（入口を明示）
   return client.replyMessage(e.replyToken, {
     type: "text",
     text:
@@ -271,6 +340,7 @@ async function handleEvent(e, client) {
         { type: "action", action: { type: "message", label: "今日のメニュー", text: "今日のメニュー" } },
         { type: "action", action: { type: "message", label: "食事ログ", text: "食事" } },
         { type: "action", action: { type: "message", label: "ジムログ", text: "ジム" } },
+        { type: "action", action: { type: "message", label: "体重ログ", text: "体重" } },
       ],
     },
   });
