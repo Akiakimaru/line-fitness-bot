@@ -52,4 +52,17 @@ cron.schedule("0 12 * * *", () => pushSlot("昼"), { timezone: TZ });
 cron.schedule("0 19 * * *", () => pushSlot("夜"), { timezone: TZ });
 cron.schedule("0 23 * * *", () => pushSlot("就寝"), { timezone: TZ });
 
+// 追加: 次週メニューの自動生成（毎週土曜 23:00 JST）
+const { generateNextWeekWithGPT } = require("../lib/llm");
+
+cron.schedule("0 23 * * Sat", async () => {
+  try {
+    const r = await generateNextWeekWithGPT();
+    console.log("[auto-gen] result:", r);
+  } catch (e) {
+    console.error("[auto-gen] error:", e);
+  }
+}, { timezone: TZ });
+
+
 module.exports = { pushSlot };
