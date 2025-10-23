@@ -204,14 +204,14 @@ router.get("/admin/dashboard", (req, res) => {
     (async () => {
       try {
         const [stats, users, logs] = await Promise.all([
-          j(`/admin/stats?key=${esc(key)}`),
-          j(`/admin/users?key=${esc(key)}`),
-          j(`/admin/logs?key=${esc(key)}&days=7`),
+          j('/admin/stats?key=' + encodeURIComponent(key)),
+          j('/admin/users?key=' + encodeURIComponent(key)),
+          j('/admin/logs?key=' + encodeURIComponent(key) + '&days=7'),
         ]);
-        document.getElementById('kpi-now').textContent = `Week ${stats.now.week} / ${stats.now.day}`;
-        document.getElementById('kpi-users').textContent = `Users ${stats.users.count}`;
-        document.getElementById('kpi-logs').textContent = `Logs(7d) ${stats.logs7d.count}`;
-        document.getElementById('kpi-next').textContent = `Next ${stats.nextWeek.week} | ${stats.nextWeek.total} rows ${stats.nextWeek.complete35 ? '✅' : '⚠️'}`;
+        document.getElementById('kpi-now').textContent = 'Week ' + stats.now.week + ' / ' + stats.now.day;
+        document.getElementById('kpi-users').textContent = 'Users ' + stats.users.count;
+        document.getElementById('kpi-logs').textContent = 'Logs(7d) ' + stats.logs7d.count;
+        document.getElementById('kpi-next').textContent = 'Next ' + stats.nextWeek.week + ' | ' + stats.nextWeek.total + ' rows ' + (stats.nextWeek.complete35 ? '✅' : '⚠️');
 
         const utb = document.querySelector('#users-table tbody');
         users.users.forEach(u=>{
