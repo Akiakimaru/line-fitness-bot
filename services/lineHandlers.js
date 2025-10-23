@@ -333,8 +333,8 @@ async function handleEvent(e, client) {
   // 2.5) マイページリンク
   if (msg.includes("マイページ")) {
     const { uid, exp, sig } = signUserLink(e.source.userId, 60 * 60 * 24 * 7);
-    const base = process.env.PUBLIC_BASE_URL || "";
-    const url = `${base}/mypage?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
+    const base = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "";
+    const url = `${base.replace(/\/$/, "")}/mypage?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
     return client.replyMessage(e.replyToken, {
       type: "text",
       text: `マイページはこちらから\n${url}`,
