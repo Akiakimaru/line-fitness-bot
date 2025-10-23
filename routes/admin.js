@@ -249,8 +249,11 @@ router.get("/admin/dashboard", (req, res) => {
 /* ========= Public: user logs and summary (signed) ========= */
 router.get("/user/logs", async (req, res) => {
   const { uid, exp, sig } = req.query;
-  if (!verifyUserLink(String(uid || ""), Number(exp), String(sig || ""))) {
-    return res.status(401).json({ ok: false, error: "unauthorized" });
+  console.log("[user/logs] params:", { uid, exp, sig });
+  const isValid = verifyUserLink(String(uid || ""), Number(exp), String(sig || ""));
+  console.log("[user/logs] verify result:", isValid);
+  if (!isValid) {
+    return res.status(401).json({ ok: false, error: "unauthorized", debug: { uid, exp, sig } });
   }
   try {
     const days = Math.max(1, Math.min(31, parseInt(req.query.days || "7", 10) || 7));
@@ -264,8 +267,11 @@ router.get("/user/logs", async (req, res) => {
 
 router.get("/user/summary", async (req, res) => {
   const { uid, exp, sig } = req.query;
-  if (!verifyUserLink(String(uid || ""), Number(exp), String(sig || ""))) {
-    return res.status(401).json({ ok: false, error: "unauthorized" });
+  console.log("[user/summary] params:", { uid, exp, sig });
+  const isValid = verifyUserLink(String(uid || ""), Number(exp), String(sig || ""));
+  console.log("[user/summary] verify result:", isValid);
+  if (!isValid) {
+    return res.status(401).json({ ok: false, error: "unauthorized", debug: { uid, exp, sig } });
   }
   try {
     const days = Math.max(1, Math.min(31, parseInt(req.query.days || "7", 10) || 7));
@@ -303,8 +309,11 @@ router.get("/user/summary", async (req, res) => {
 /* ========= Public: simple MyPage ========= */
 router.get("/mypage", (req, res) => {
   const { uid, exp, sig } = req.query;
-  if (!verifyUserLink(String(uid || ""), Number(exp), String(sig || ""))) {
-    return res.status(401).send("unauthorized");
+  console.log("[mypage] params:", { uid, exp, sig });
+  const isValid = verifyUserLink(String(uid || ""), Number(exp), String(sig || ""));
+  console.log("[mypage] verify result:", isValid);
+  if (!isValid) {
+    return res.status(401).send("unauthorized - check server logs for details");
   }
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
   res.send(`<!doctype html>
