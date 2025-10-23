@@ -332,6 +332,14 @@ router.get("/mypage", (req, res) => {
     const exp = qs.get('exp');
     const sig = qs.get('sig');
     async function j(u){ const r = await fetch(u); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+    function fmtJST(iso){
+      try{
+        const d = new Date(iso);
+        if(isNaN(d.getTime())) return String(iso);
+        return d.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false,
+          year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+      }catch(_){ return String(iso); }
+    }
     (async()=>{
       try{
         const summary = await j('/user/summary?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig));
@@ -343,7 +351,7 @@ router.get("/mypage", (req, res) => {
         const tb=document.getElementById('tb');
         logs.logs.slice(0,100).forEach(r=>{
           const tr=document.createElement('tr');
-          const td1=document.createElement('td'); td1.textContent=r.DateTime; tr.appendChild(td1);
+          const td1=document.createElement('td'); td1.textContent=fmtJST(r.DateTime); tr.appendChild(td1);
           const td2=document.createElement('td'); td2.textContent=r.Kind; tr.appendChild(td2);
           const td3=document.createElement('td'); td3.textContent=r.Text; tr.appendChild(td3);
           tb.appendChild(tr);
