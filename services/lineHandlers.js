@@ -1,5 +1,5 @@
 // services/lineHandlers.js
-const { getWeekAndDayJST, todayYMDJST, nowJST } = require("../lib/utils");
+const { getWeekAndDayJST, todayYMDJST, nowJST, signUserLink } = require("../lib/utils");
 const { loadMealPlan, registerUser, appendLogRecord } = require("../lib/sheets");
 
 /* ================= ユーティリティ ================= */
@@ -328,6 +328,17 @@ async function handleEvent(e, client) {
   if (msg.includes("今日のメニュー")) {
     const menu = await getTodayMenuText();
     return client.replyMessage(e.replyToken, { type: "text", text: menu });
+  }
+
+  // 2.5) マイページリンク
+  if (msg.includes("マイページ")) {
+    const { uid, exp, sig } = signUserLink(e.source.userId, 60 * 60 * 24 * 7);
+    const base = process.env.PUBLIC_BASE_URL || "";
+    const url = `${base}/mypage?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
+    return client.replyMessage(e.replyToken, {
+      type: "text",
+      text: `マイページはこちらから\n${url}`,
+    });
   }
 
   // 3) デフォルト応答（入口を明示）

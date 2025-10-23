@@ -4,7 +4,7 @@ const router = express.Router();
 
 const ADMIN_KEY = process.env.ADMIN_KEY || "";
 
-const { getWeekAndDayJST } = require("../lib/utils");
+const { getWeekAndDayJST, verifyUserLink, signUserLink } = require("../lib/utils");
 const { loadMealPlan, readUsersDetailed, readRecentLogs } = require("../lib/sheets");
 const { generateNextWeekWithGPT } = require("../lib/llm");
 const { pushSlot } = require("../services/scheduler");
@@ -244,6 +244,107 @@ router.get("/admin/dashboard", (req, res) => {
   </script>
 </body>
 </html>`);
+});
+
+/* ========= Public: user logs and summary (signed) ========= */
+router.get("/user/logs", async (req, res) => {
+  const { uid, exp, sig } = req.query;
+  if (!verifyUserLink(String(uid || ""), Number(exp), String(sig || ""))) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+  try {
+    const days = Math.max(1, Math.min(31, parseInt(req.query.days || "7", 10) || 7));
+    const logs = (await readRecentLogs(days)).filter(r => r.UserId === uid);
+    res.json({ ok: true, uid, days, logs });
+  } catch (e) {
+    console.error("[user/logs] Error:", e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+router.get("/user/summary", async (req, res) => {
+  const { uid, exp, sig } = req.query;
+  if (!verifyUserLink(String(uid || ""), Number(exp), String(sig || ""))) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+  try {
+    const days = Math.max(1, Math.min(31, parseInt(req.query.days || "7", 10) || 7));
+    const logs = (await readRecentLogs(days)).filter(r => r.UserId === uid);
+    // simple summary
+    let weights = [];
+    let gymSets = 0, gymMinutes = 0;
+    let meals = 0;
+    for (const r of logs) {
+      if (r.Kind === "Weight") {
+        const v = parseFloat(r.Text);
+        if (!Number.isNaN(v)) weights.push(v);
+      } else if (r.Kind === "Gym") {
+        const meta = r.Meta || {};
+        if (Array.isArray(meta.parsed)) {
+          for (const ex of meta.parsed) {
+            if (Array.isArray(ex.sets)) gymSets += ex.sets.length;
+            if (ex.minutes) gymMinutes += Number(ex.minutes) || 0;
+          }
+        }
+      } else if (r.Kind === "Meal") {
+        meals += 1;
+      }
+    }
+    const wAvg = weights.length ? (weights.reduce((a,b)=>a+b,0)/weights.length) : null;
+    const wMin = weights.length ? Math.min(...weights) : null;
+    const wMax = weights.length ? Math.max(...weights) : null;
+    res.json({ ok: true, uid, days, meals, gymSets, gymMinutes, weight: { avg: wAvg, min: wMin, max: wMax } });
+  } catch (e) {
+    console.error("[user/summary] Error:", e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ========= Public: simple MyPage ========= */
+router.get("/mypage", (req, res) => {
+  const { uid, exp, sig } = req.query;
+  if (!verifyUserLink(String(uid || ""), Number(exp), String(sig || ""))) {
+    return res.status(401).send("unauthorized");
+  }
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  res.send(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MyPage</title>
+<style>body{font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding:16px} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:6px 8px;font-size:13px} th{background:#fafafa;text-align:left}</style>
+</head>
+<body>
+  <h1>MyPage</h1>
+  <div id="kpi">Loading...</div>
+  <h2>Recent Logs</h2>
+  <table><thead><tr><th>DateTime</th><th>Kind</th><th>Text</th></tr></thead><tbody id="tb"></tbody></table>
+  <script>
+    const qs = new URLSearchParams(window.location.search);
+    const uid = ${JSON.stringify(String(undefined))} || qs.get('uid');
+    const exp = qs.get('exp');
+    const sig = qs.get('sig');
+    async function j(u){ const r = await fetch(u); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+    (async()=>{
+      try{
+        const summary = await j('/user/summary?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig));
+        const logs = await j('/user/logs?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig)+'&days=7');
+        if(!summary.ok) throw new Error('summary failed');
+        if(!logs.ok) throw new Error('logs failed');
+        const k = summary.weight.avg ? ('体重 平均 '+summary.weight.avg.toFixed(1)+'kg / 最小 '+summary.weight.min.toFixed(1)+'kg / 最大 '+summary.weight.max.toFixed(1)+'kg') : '体重: 記録不足';
+        document.getElementById('kpi').textContent = '直近7日: 食事'+summary.meals+'件 / ジム セット'+summary.gymSets+'・有酸素'+summary.gymMinutes+'分 / '+k;
+        const tb=document.getElementById('tb');
+        logs.logs.slice(0,100).forEach(r=>{
+          const tr=document.createElement('tr');
+          const td1=document.createElement('td'); td1.textContent=r.DateTime; tr.appendChild(td1);
+          const td2=document.createElement('td'); td2.textContent=r.Kind; tr.appendChild(td2);
+          const td3=document.createElement('td'); td3.textContent=r.Text; tr.appendChild(td3);
+          tb.appendChild(tr);
+        });
+      }catch(e){
+        document.getElementById('kpi').textContent='Load failed: '+e.message;
+      }
+    })();
+  </script>
+</body></html>`);
 });
 
 module.exports = router;
