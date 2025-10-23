@@ -90,7 +90,8 @@ router.get("/admin/users", async (req, res) => {
     const users = await readUsersDetailed();
     res.json({ ok: true, users });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    console.error("[admin/users] Error:", e);
+    res.status(500).json({ ok: false, error: String(e), stack: e.stack });
   }
 });
 
@@ -102,7 +103,8 @@ router.get("/admin/logs", async (req, res) => {
     const logs = await readRecentLogs(days);
     res.json({ ok: true, days, logs });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    console.error("[admin/logs] Error:", e);
+    res.status(500).json({ ok: false, error: String(e), stack: e.stack });
   }
 });
 
@@ -142,7 +144,8 @@ router.get("/admin/stats", async (req, res) => {
       },
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    console.error("[admin/stats] Error:", e);
+    res.status(500).json({ ok: false, error: String(e), stack: e.stack });
   }
 });
 
@@ -208,6 +211,17 @@ router.get("/admin/dashboard", (req, res) => {
           j('/admin/users?key=' + encodeURIComponent(key)),
           j('/admin/logs?key=' + encodeURIComponent(key) + '&days=7'),
         ]);
+        
+        if (!stats.ok) {
+          throw new Error('Stats API failed: ' + (stats.error || 'Unknown error'));
+        }
+        if (!users.ok) {
+          throw new Error('Users API failed: ' + (users.error || 'Unknown error'));
+        }
+        if (!logs.ok) {
+          throw new Error('Logs API failed: ' + (logs.error || 'Unknown error'));
+        }
+        
         document.getElementById('kpi-now').textContent = 'Week ' + stats.now.week + ' / ' + stats.now.day;
         document.getElementById('kpi-users').textContent = 'Users ' + stats.users.count;
         document.getElementById('kpi-logs').textContent = 'Logs(7d) ' + stats.logs7d.count;
@@ -223,7 +237,8 @@ router.get("/admin/dashboard", (req, res) => {
           ltb.appendChild(tr([r.DateTime, r.UserId, r.Kind, r.Text]));
         });
       } catch (e) {
-        alert('Load failed: '+e.message);
+        console.error('Dashboard load error:', e);
+        document.body.innerHTML = '<h1>LINE Fitness 管理ダッシュボード</h1><p style="color: red;">Load failed: ' + e.message + '</p><p>Check server logs for details.</p>';
       }
     })();
   </script>
