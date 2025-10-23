@@ -328,7 +328,7 @@ router.get("/mypage", (req, res) => {
   <table><thead><tr><th>DateTime</th><th>Kind</th><th>Text</th></tr></thead><tbody id="tb"></tbody></table>
   <script>
     const qs = new URLSearchParams(window.location.search);
-    const uid = ${JSON.stringify(String(undefined))} || qs.get('uid');
+    const uid = qs.get('uid');
     const exp = qs.get('exp');
     const sig = qs.get('sig');
     async function j(u){ const r = await fetch(u); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
