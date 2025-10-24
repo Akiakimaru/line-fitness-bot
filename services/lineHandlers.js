@@ -1,6 +1,7 @@
 // services/lineHandlers.js
 const { getWeekAndDayJST, todayYMDJST, nowJST, signUserLink } = require("../lib/utils");
-const { loadMealPlan, registerUser, appendLogRecord } = require("../lib/sheets");
+const { loadMealPlan, registerUser, appendLogRecord, updateLogPFC } = require("../lib/sheets");
+const { analyzeMealPFC, analyzeMealPFCAsync } = require("../lib/pfcAnalyzer");
 
 /* ================= ユーティリティ ================= */
 
@@ -170,18 +171,53 @@ async function handlePendingInput(userId, text, client, replyToken) {
   }
 
   if (st.mode === "meal") {
+    // 基本記録を即座に保存（レスポンス時間改善）
     const rec = {
       DateTime: ts.toISOString(),
       UserId: userId,
       Kind: "Meal",
       Text: text.trim(),
       MetaJSON: JSON.stringify({ time: st.timeHHMM || null }),
+      PFCJSON: "", // 後で更新
+      ConfidenceScore: null,
     };
     await appendLogRecord(rec);
+    
+    // 即座にフィードバック（PFC情報なし）
     await client.replyMessage(replyToken, {
       type: "text",
-      text: `🍽 食事記録完了`,
+      text: `🍽 食事記録完了\n\n📊 PFC解析中...`,
     });
+    
+    // 非同期でPFC解析を実行
+    setImmediate(async () => {
+      try {
+        console.log(`[meal] Starting async PFC analysis for: ${text.trim().substring(0, 50)}...`);
+        
+        const pfcData = await analyzeMealPFC(text.trim(), { 
+          useCache: true, 
+          useBatch: true,
+          timeout: 15000 
+        });
+        
+        if (pfcData) {
+          // PFCデータでログを更新
+          const recordId = `${ts.toISOString()}_${userId}`;
+          const success = await updateLogPFC(recordId, pfcData, 0.8);
+          
+          if (success) {
+            console.log(`[meal] PFC analysis completed and saved:`, pfcData.total);
+          } else {
+            console.log(`[meal] PFC analysis completed but failed to save`);
+          }
+        } else {
+          console.log(`[meal] PFC analysis failed or returned no data`);
+        }
+      } catch (error) {
+        console.error('[meal] Async PFC analysis failed:', error);
+      }
+    });
+    
     PENDING.delete(userId);
     return true;
   }
@@ -259,18 +295,54 @@ async function handleEvent(e, client) {
         ts = new Date(jstNow);
         ts.setHours(hh, mm, 0, 0);
       }
+      // 基本記録を即座に保存
       const rec = {
         DateTime: ts.toISOString(),
         UserId: e.source.userId,
         Kind: "Meal",
         Text: mealBody.trim(),
         MetaJSON: JSON.stringify({ time: time || null }),
+        PFCJSON: "", // 後で更新
+        ConfidenceScore: null,
       };
       await appendLogRecord(rec);
-      return client.replyMessage(e.replyToken, {
+      
+      // 即座にフィードバック
+      await client.replyMessage(e.replyToken, {
         type: "text",
-        text: `🍽 食事記録完了`,
+        text: `🍽 食事記録完了\n\n📊 PFC解析中...`,
       });
+      
+      // 非同期でPFC解析を実行
+      setImmediate(async () => {
+        try {
+          console.log(`[meal oneshot] Starting async PFC analysis for: ${mealBody.trim().substring(0, 50)}...`);
+          
+          const pfcData = await analyzeMealPFC(mealBody.trim(), { 
+            useCache: true, 
+            useBatch: true,
+            timeout: 15000 
+          });
+          
+          if (pfcData) {
+            // PFCデータでログを更新
+            const recordId = `${ts.toISOString()}_${e.source.userId}`;
+            const success = await updateLogPFC(recordId, pfcData, 0.8);
+            
+            if (success) {
+              console.log(`[meal oneshot] PFC analysis completed and saved:`, pfcData.total);
+            } else {
+              console.log(`[meal oneshot] PFC analysis completed but failed to save`);
+            }
+          } else {
+            console.log(`[meal oneshot] PFC analysis failed or returned no data`);
+          }
+        } catch (error) {
+          console.error('[meal oneshot] Async PFC analysis failed:', error);
+        }
+      });
+      
+      return;
     }
 
     // ジムワンショット（例: "ジム\nベンチ 50*10" / "ジム 07:05\nバイク 15分"）

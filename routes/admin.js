@@ -6,6 +6,7 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "";
 
 const { getWeekAndDayJST, verifyUserLink, signUserLink } = require("../lib/utils");
 const { loadMealPlan, readUsersDetailed, readRecentLogs } = require("../lib/sheets");
+const { analyzeHistoricalMeals, generateHistoricalPFCStats } = require("../lib/historicalAnalyzer");
 const { generateNextWeekWithGPT } = require("../lib/llm");
 const { pushSlot } = require("../services/scheduler");
 const { getTodayMenuText } = require("../services/lineHandlers");
@@ -457,6 +458,31 @@ router.get("/mypage", (req, res) => {
         document.getElementById('gym-count').textContent = summary.gymSets;
         document.getElementById('weight-count').textContent = logs.logs.filter(l => l.Kind === 'Weight').length;
         
+        // PFCサマリー計算
+        const mealLogs = logs.logs.filter(l => l.Kind === 'Meal' && l.PFC && l.PFC.total);
+        let totalProtein = 0, totalFat = 0, totalCarbs = 0, totalCalories = 0;
+        mealLogs.forEach(log => {
+          if (log.PFC && log.PFC.total) {
+            totalProtein += log.PFC.total.protein || 0;
+            totalFat += log.PFC.total.fat || 0;
+            totalCarbs += log.PFC.total.carbs || 0;
+            totalCalories += log.PFC.total.calories || 0;
+          }
+        });
+        
+        // PFCサマリーを表示（簡易版）
+        if (mealLogs.length > 0) {
+          const pfcSummary = document.createElement('div');
+          pfcSummary.innerHTML = `
+            <div style="background: #e8f5e8; padding: 12px; border-radius: 8px; margin: 12px 0; font-size: 12px;">
+              <strong>📊 7日間PFC合計</strong><br>
+              P: ${totalProtein.toFixed(1)}g | F: ${totalFat.toFixed(1)}g | C: ${totalCarbs.toFixed(1)}g<br>
+              カロリー: ${totalCalories.toFixed(0)}kcal (平均: ${(totalCalories/7).toFixed(0)}kcal/日)
+            </div>
+          `;
+          document.querySelector('.logs-section').insertBefore(pfcSummary, document.getElementById('status-message'));
+        }
+        
         // 連続記録日数（簡易版）
         const today = new Date();
         const recentDays = new Set();
@@ -491,7 +517,13 @@ router.get("/mypage", (req, res) => {
             tr.appendChild(td2);
             
             const td3 = document.createElement('td'); 
-            td3.textContent = r.Text; 
+            let content = r.Text;
+            // PFC情報がある場合は追加表示
+            if (r.Kind === 'Meal' && r.PFC && r.PFC.total) {
+              const { protein, fat, carbs, calories } = r.PFC.total;
+              content += `\n📊 P${protein}g F${fat}g C${carbs}g (${calories}kcal)`;
+            }
+            td3.textContent = content; 
             tr.appendChild(td3);
             
             tbody.appendChild(tr);
@@ -508,6 +540,48 @@ router.get("/mypage", (req, res) => {
     loadData();
   </script>
 </body></html>`);
+});
+
+/* ========= Historical Data Analysis ========= */
+router.get("/admin/analyze-historical", async (req, res) => {
+  const { key, days } = req.query;
+  if (key !== ADMIN_KEY) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+  
+  try {
+    const analysisDays = parseInt(days || "30", 10);
+    const results = await analyzeHistoricalMeals(analysisDays);
+    
+    res.json({
+      ok: true,
+      message: `過去${analysisDays}日間の食事データを分析しました`,
+      results: results
+    });
+  } catch (error) {
+    console.error("[admin/analyze-historical] Error:", error);
+    res.status(500).json({ ok: false, error: String(error) });
+  }
+});
+
+router.get("/admin/pfc-stats", async (req, res) => {
+  const { key, days } = req.query;
+  if (key !== ADMIN_KEY) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+  
+  try {
+    const analysisDays = parseInt(days || "30", 10);
+    const stats = await generateHistoricalPFCStats(analysisDays);
+    
+    res.json({
+      ok: true,
+      stats: stats
+    });
+  } catch (error) {
+    console.error("[admin/pfc-stats] Error:", error);
+    res.status(500).json({ ok: false, error: String(error) });
+  }
 });
 
 module.exports = router;
