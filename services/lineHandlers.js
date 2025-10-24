@@ -180,7 +180,7 @@ async function handlePendingInput(userId, text, client, replyToken) {
     await appendLogRecord(rec);
     await client.replyMessage(replyToken, {
       type: "text",
-      text: `🍽 食事ログを保存しました\n${st.timeHHMM ? `時刻 ${st.timeHHMM}\n` : ""}${text.trim()}`,
+      text: `🍽 食事記録完了`,
     });
     PENDING.delete(userId);
     return true;
@@ -198,7 +198,7 @@ async function handlePendingInput(userId, text, client, replyToken) {
     await appendLogRecord(rec);
     await client.replyMessage(replyToken, {
       type: "text",
-      text: `💪 ジムログを保存しました\n${st.timeHHMM ? `時刻 ${st.timeHHMM}\n` : ""}${text.trim()}`,
+      text: `💪 ジム記録完了`,
     });
     PENDING.delete(userId);
     return true;
@@ -235,7 +235,7 @@ async function handleEvent(e, client) {
         await appendLogRecord(rec);
         return client.replyMessage(e.replyToken, {
           type: "text",
-          text: `⚖️ 体重を記録しました：${val}kg`,
+          text: `⚖️ 体重記録完了：${val}kg`,
         });
       }
       // 本文が空なら2段階フローにフォールバック
@@ -244,7 +244,7 @@ async function handleEvent(e, client) {
       } else {
         return client.replyMessage(e.replyToken, {
           type: "text",
-          text: "体重を数値で入力してください（例: 体重 79.2）",
+          text: "❌ 体重は数値で入力してください\n\n✅ 正しい例:\n• 体重 79.2\n• 体重 65.5\n\n💡 小数点も使えます！",
         });
       }
     }
@@ -269,7 +269,7 @@ async function handleEvent(e, client) {
       await appendLogRecord(rec);
       return client.replyMessage(e.replyToken, {
         type: "text",
-        text: `🍽 食事ログを保存しました\n${time ? `時刻 ${time}\n` : ""}${mealBody.trim()}`,
+        text: `🍽 食事記録完了`,
       });
     }
 
@@ -294,7 +294,7 @@ async function handleEvent(e, client) {
       await appendLogRecord(rec);
       return client.replyMessage(e.replyToken, {
         type: "text",
-        text: `💪 ジムログを保存しました\n${time ? `時刻 ${time}\n` : ""}${gymBody.trim()}`,
+        text: `💪 ジム記録完了`,
       });
     }
 
@@ -304,6 +304,14 @@ async function handleEvent(e, client) {
       return client.replyMessage(e.replyToken, {
         type: "text",
         text: "食事内容を入力してください（例: 鶏むね肉、ヨーグルト）。\n1行目に時刻を含めたい場合は「食事 12:30」と送ってから本文を入力してください。",
+        quickReply: {
+          items: [
+            { type: "action", action: { type: "message", label: "朝食", text: "朝食" } },
+            { type: "action", action: { type: "message", label: "昼食", text: "昼食" } },
+            { type: "action", action: { type: "message", label: "夕食", text: "夕食" } },
+            { type: "action", action: { type: "message", label: "間食", text: "間食" } },
+          ],
+        },
       });
     }
     if (cmd === "ジム") {
@@ -311,12 +319,20 @@ async function handleEvent(e, client) {
       return client.replyMessage(e.replyToken, {
         type: "text",
         text: "ジム記録を入力してください（複数行可）。\n例:\nベンチプレス 50*10 60*8\nトレッドミル 8分2.8km\n※ 1行目に時刻を含めたい場合は「ジム 07:10」と送ってから本文を入力。",
+        quickReply: {
+          items: [
+            { type: "action", action: { type: "message", label: "筋トレ", text: "筋トレ" } },
+            { type: "action", action: { type: "message", label: "有酸素", text: "有酸素" } },
+            { type: "action", action: { type: "message", label: "ストレッチ", text: "ストレッチ" } },
+            { type: "action", action: { type: "message", label: "HIIT", text: "HIIT" } },
+          ],
+        },
       });
     }
     if (cmd === "体重") {
       return client.replyMessage(e.replyToken, {
         type: "text",
-        text: "体重を入力してください（例: 体重 79.2）",
+        text: "⚖️ 体重を入力してください\n\n✅ 入力例:\n• 体重 79.2\n• 体重 65.5\n\n💡 小数点も使えます！",
       });
     }
   }
@@ -340,6 +356,7 @@ async function handleEvent(e, client) {
       text: `マイページはこちらから\n${url}`,
     });
   }
+
 
   // 2.6) HIITプラン
   if (msg.includes("HIIT") || msg.includes("hiit") || msg.includes("ヒット")) {

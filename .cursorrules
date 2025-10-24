@@ -1,0 +1,236 @@
+# LINE Fitness Bot - Cursor Development Guidelines
+
+## プロジェクト概要
+LINEを起点としたフィットネス管理ボット。トレーニング・栄養・リマインドの自動配信、Google Sheets連携、AI生成メニュー、静的ページ配信を提供。
+
+## 技術スタック
+- **Backend**: Node.js + Express + TypeScript
+- **Database**: Google Sheets API
+- **Messaging**: LINE Messaging API
+- **Hosting**: Render
+- **Static Pages**: HTML/CSS/JS (mobile-first)
+- **AI**: OpenAI GPT-4o-mini
+
+## 設計原則
+
+### 1. コード品質
+- **小さく分割**: 単一責任の原則に従い、機能ごとにモジュール分割
+- **依存明示**: import/require文で依存関係を明確化
+- **I/O管理**: 型定義でAPI呼び出しとデータフローを管理
+- **エラーハンドリング**: try-catch + 構造化ログ + 適切なHTTPステータス
+
+### 2. セキュリティ
+- **認証必須**: 管理APIは必ずJWT/Basic認証を実装
+- **署名検証**: ユーザーリンクはHMAC署名で保護
+- **環境変数**: 機密情報は.envで管理、.env.exampleでテンプレート提供
+- **入力検証**: 全ユーザー入力にバリデーション実装
+
+### 3. 運用性
+- **冪等性**: 重複送信防止のためdedupeKey必須
+- **監視**: 構造化ログ（userId, jobId, timestamp）
+- **回復性**: 失敗時のリトライ + 指数バックオフ
+- **可観測性**: ヘルスチェック + メトリクス収集
+
+## ディレクトリ構造
+```
+/
+├── src/
+│   ├── index.ts              # サーバーエントリーポイント
+│   ├── routes/
+│   │   ├── line.ts          # LINE Webhook
+│   │   ├── admin.ts         # 管理API
+│   │   └── static.ts        # 静的ページ
+│   ├── services/
+│   │   ├── scheduler.ts     # cron ジョブ
+│   │   ├── menuGenerator.ts # AI生成
+│   │   ├── sender.ts        # LINE送信
+│   │   └── sheets.ts        # Google Sheets
+│   ├── utils/
+│   │   ├── csv.ts           # CSV処理
+│   │   ├── auth.ts          # 認証
+│   │   ├── logger.ts        # ログ
+│   │   └── validation.ts    # バリデーション
+│   └── types/
+│       └── index.ts         # 型定義
+├── public/                  # 静的ファイル
+├── scripts/                 # CLI ツール
+├── tests/                   # テスト
+└── docs/                    # ドキュメント
+```
+
+## 開発ワークフロー
+
+### 1. 新機能開発
+```bash
+# 1. ブランチ作成
+git checkout -b feat/feature-name
+
+# 2. 型定義から開始
+# src/types/index.ts にインターフェース定義
+
+# 3. 実装
+# 単体テストと並行して実装
+
+# 4. テスト実行
+npm run test
+npm run lint
+npm run typecheck
+
+# 5. PR作成
+# Cursorで差分レビュー後、マージ
+```
+
+### 2. バグ修正
+```bash
+# 1. 再現手順の確認
+# 2. テストケース追加
+# 3. 修正実装
+# 4. 回帰テスト
+```
+
+## コーディング規約
+
+### TypeScript
+- **strict mode**: 有効
+- **型注釈**: 関数の引数・戻り値は必須
+- **interface**: データ構造はinterfaceで定義
+- **enum**: 定数はenumで管理
+
+### エラーハンドリング
+```typescript
+try {
+  const result = await riskyOperation();
+  logger.info('Operation succeeded', { result });
+  return result;
+} catch (error) {
+  logger.error('Operation failed', { error: error.message, stack: error.stack });
+  throw new AppError('Operation failed', { cause: error });
+}
+```
+
+### ログ出力
+```typescript
+// 構造化ログ
+logger.info('User action', {
+  userId: 'U123...',
+  action: 'meal_log',
+  timestamp: new Date().toISOString(),
+  metadata: { mealType: 'breakfast' }
+});
+```
+
+## 既知の課題と対応
+
+### 1. CSVヘッダ不一致
+- **問題**: 説明文がヘッダ行に混入
+- **対応**: `src/utils/csv.ts`でvalidateHeader()実装
+- **テスト**: `tests/csv.test.ts`でエラーケース検証
+
+### 2. 重複プッシュ
+- **問題**: 同一ユーザーへの同時送信
+- **対応**: dedupeKey = sha256(userId + date + slot)
+- **実装**: `src/services/sender.ts`で冪等性確保
+
+### 3. 認証不備
+- **問題**: 管理APIが認証なし
+- **対応**: JWT認証を`src/utils/auth.ts`で実装
+- **適用**: 全`/admin/*`エンドポイント
+
+## テスト戦略
+
+### 1. 単体テスト
+- **対象**: ユーティリティ関数、サービス層
+- **ツール**: Jest
+- **カバレッジ**: 80%以上
+
+### 2. 統合テスト
+- **対象**: API エンドポイント
+- **ツール**: Supertest
+- **モック**: Google Sheets API, LINE API
+
+### 3. E2Eテスト
+- **対象**: 主要フロー（メニュー生成→配信）
+- **ツール**: Playwright（将来）
+
+## デプロイメント
+
+### 1. 環境変数
+```bash
+# 必須
+LINE_CHANNEL_SECRET=
+LINE_CHANNEL_ACCESS_TOKEN=
+GOOGLE_SHEETS_CREDENTIALS_JSON=
+ADMIN_JWT_SECRET=
+PUBLIC_BASE_URL=
+
+# オプション
+MYPAGE_SECRET=
+OPENAI_API_KEY=
+START_DATE=
+```
+
+### 2. Render設定
+- **Build Command**: `npm install && npm run build`
+- **Start Command**: `npm start`
+- **Health Check**: `GET /health`
+
+## 禁止事項
+
+### セキュリティ
+- ❌ 管理APIを認証なしで公開
+- ❌ userIdをURL平文で露出（署名トークン必須）
+- ❌ 機密情報をコードにハードコード
+- ❌ 未検証のユーザー入力を直接処理
+
+### パフォーマンス
+- ❌ 同期的な重い処理（AI生成、大量データ処理）
+- ❌ メモリリーク（イベントリスナー未削除、タイマー未クリア）
+- ❌ 無限ループ・再帰
+
+### 運用
+- ❌ ログに機密情報出力
+- ❌ エラーを握りつぶす（catch文で何もしない）
+- ❌ 冪等性を無視した重複処理
+
+## 緊急時対応
+
+### LINE返信停止
+1. Renderログ確認
+2. Webhook署名検証
+3. チャネル権限確認
+4. ステータス200応答確認
+
+### CSV生成失敗
+1. ヘッダ検証ログ確認
+2. クリーニング結果確認
+3. 失敗通知送信
+4. 手動生成で復旧
+
+### 大量プッシュ
+1. dedupeKey登録状況確認
+2. 並列送信のミューテックス確認
+3. 送信停止・ロールバック
+
+## 今後の拡張計画
+
+### Phase 1: 基盤整備
+- [ ] TypeScript移行
+- [ ] CSVバリデーション
+- [ ] 送信冪等化
+- [ ] 管理API認証
+
+### Phase 2: 機能拡張
+- [ ] 静的ページ生成
+- [ ] プレイリスト自動生成
+- [ ] 体調連動強度調整
+- [ ] 可視化ダッシュボード
+
+### Phase 3: 高度化
+- [ ] 機械学習による最適化
+- [ ] 多言語対応
+- [ ] 外部サービス連携拡張
+- [ ] モバイルアプリ化
+
+---
+
+**重要**: このファイルは開発の指針です。変更時はチーム全体で合意を取り、README.mdも併せて更新してください。

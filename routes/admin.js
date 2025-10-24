@@ -318,20 +318,93 @@ router.get("/mypage", (req, res) => {
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
   res.send(`<!doctype html>
 <html lang="ja"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MyPage</title>
-<style>body{font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding:16px} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:6px 8px;font-size:13px} th{background:#fafafa;text-align:left}</style>
+<title>MyPage - フィットネス管理</title>
+<style>
+  body{font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding:16px; background:#f5f5f5; margin:0}
+  .container{max-width:600px; margin:0 auto; background:white; border-radius:12px; padding:20px; box-shadow:0 2px 10px rgba(0,0,0,0.1)}
+  .header{text-align:center; margin-bottom:24px; padding-bottom:16px; border-bottom:2px solid #e0e0e0}
+  .kpi-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px}
+  .kpi-card{background:#f8f9fa; padding:16px; border-radius:8px; text-align:center; border-left:4px solid #007bff}
+  .kpi-card.meal{border-left-color:#28a745}
+  .kpi-card.gym{border-left-color:#dc3545}
+  .kpi-card.weight{border-left-color:#ffc107}
+  .kpi-number{font-size:24px; font-weight:bold; color:#333}
+  .kpi-label{font-size:12px; color:#666; margin-top:4px}
+  .action-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px}
+  .action-btn{background:#007bff; color:white; border:none; padding:12px; border-radius:8px; font-size:14px; cursor:pointer; text-decoration:none; text-align:center; display:block}
+  .action-btn:hover{background:#0056b3}
+  .action-btn.secondary{background:#6c757d}
+  .action-btn.secondary:hover{background:#545b62}
+  .logs-section{margin-top:24px}
+  .logs-table{width:100%; border-collapse:collapse; font-size:12px}
+  .logs-table th, .logs-table td{border:1px solid #ddd; padding:8px; text-align:left}
+  .logs-table th{background:#f8f9fa; font-weight:600}
+  .logs-table tr:nth-child(even){background:#f8f9fa}
+  .status-badge{display:inline-block; padding:2px 8px; border-radius:12px; font-size:10px; font-weight:600}
+  .status-good{background:#d4edda; color:#155724}
+  .status-warning{background:#fff3cd; color:#856404}
+  .status-info{background:#d1ecf1; color:#0c5460}
+  @media (max-width: 480px) {
+    .kpi-grid, .action-grid{grid-template-columns:1fr}
+    .container{padding:12px}
+  }
+</style>
 </head>
 <body>
-  <h1>MyPage</h1>
-  <div id="kpi">Loading...</div>
-  <h2>Recent Logs</h2>
-  <table><thead><tr><th>DateTime</th><th>Kind</th><th>Text</th></tr></thead><tbody id="tb"></tbody></table>
+  <div class="container">
+    <div class="header">
+      <h1>📊 マイページ</h1>
+      <p>フィットネス管理ダッシュボード</p>
+    </div>
+    
+    <div id="kpi-grid" class="kpi-grid">
+      <div class="kpi-card meal">
+        <div class="kpi-number" id="meal-count">-</div>
+        <div class="kpi-label">食事記録</div>
+      </div>
+      <div class="kpi-card gym">
+        <div class="kpi-number" id="gym-count">-</div>
+        <div class="kpi-label">ジム記録</div>
+      </div>
+      <div class="kpi-card weight">
+        <div class="kpi-number" id="weight-count">-</div>
+        <div class="kpi-label">体重記録</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-number" id="streak-days">-</div>
+        <div class="kpi-label">連続記録日</div>
+      </div>
+    </div>
+    
+    <div class="action-grid">
+      <a href="#" class="action-btn" onclick="openLineBot()">📱 LINE Bot</a>
+      <a href="/hiit-plan.html" class="action-btn secondary">🚴‍♂️ HIITプラン</a>
+      <a href="#" class="action-btn secondary" onclick="showTodayMenu()">🍽 今日のメニュー</a>
+      <a href="#" class="action-btn secondary" onclick="refreshData()">🔄 更新</a>
+    </div>
+    
+    <div class="logs-section">
+      <h3>📝 最近の記録（7日間）</h3>
+      <div id="status-message" class="status-badge status-info">データ読み込み中...</div>
+      <table class="logs-table" id="logs-table" style="display:none">
+        <thead><tr><th>日時</th><th>種別</th><th>内容</th></tr></thead>
+        <tbody id="logs-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+  
   <script>
     const qs = new URLSearchParams(window.location.search);
     const uid = qs.get('uid');
     const exp = qs.get('exp');
     const sig = qs.get('sig');
-    async function j(u){ const r = await fetch(u); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+    
+    async function j(u){ 
+      const r = await fetch(u); 
+      if(!r.ok) throw new Error('HTTP '+r.status); 
+      return r.json(); 
+    }
+    
     function fmtJST(iso){
       try{
         const d = new Date(iso);
@@ -340,26 +413,88 @@ router.get("/mypage", (req, res) => {
           year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
       }catch(_){ return String(iso); }
     }
-    (async()=>{
-      try{
-        const summary = await j('/user/summary?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig));
-        const logs = await j('/user/logs?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig)+'&days=7');
+    
+    function updateStatus(message, type = 'info') {
+      const statusEl = document.getElementById('status-message');
+      statusEl.textContent = message;
+      statusEl.className = 'status-badge status-' + type;
+    }
+    
+    function openLineBot() {
+      alert('LINE Botで「マイページ」と送信すると、このページにアクセスできます。');
+    }
+    
+    function showTodayMenu() {
+      alert('LINE Botで「今日のメニュー」と送信すると、当日のメニューが表示されます。');
+    }
+    
+    function refreshData() {
+      loadData();
+    }
+    
+    async function loadData() {
+      try {
+        updateStatus('データ読み込み中...', 'info');
+        
+        const [summary, logs] = await Promise.all([
+          j('/user/summary?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig)),
+          j('/user/logs?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig)+'&days=7')
+        ]);
+        
         if(!summary.ok) throw new Error('summary failed');
         if(!logs.ok) throw new Error('logs failed');
-        const k = summary.weight.avg ? ('体重 平均 '+summary.weight.avg.toFixed(1)+'kg / 最小 '+summary.weight.min.toFixed(1)+'kg / 最大 '+summary.weight.max.toFixed(1)+'kg') : '体重: 記録不足';
-        document.getElementById('kpi').textContent = '直近7日: 食事'+summary.meals+'件 / ジム セット'+summary.gymSets+'・有酸素'+summary.gymMinutes+'分 / '+k;
-        const tb=document.getElementById('tb');
-        logs.logs.slice(0,100).forEach(r=>{
-          const tr=document.createElement('tr');
-          const td1=document.createElement('td'); td1.textContent=fmtJST(r.DateTime); tr.appendChild(td1);
-          const td2=document.createElement('td'); td2.textContent=r.Kind; tr.appendChild(td2);
-          const td3=document.createElement('td'); td3.textContent=r.Text; tr.appendChild(td3);
-          tb.appendChild(tr);
+        
+        // KPI更新
+        document.getElementById('meal-count').textContent = summary.meals;
+        document.getElementById('gym-count').textContent = summary.gymSets;
+        document.getElementById('weight-count').textContent = logs.logs.filter(l => l.Kind === 'Weight').length;
+        
+        // 連続記録日数（簡易版）
+        const today = new Date();
+        const recentDays = new Set();
+        logs.logs.forEach(log => {
+          const logDate = new Date(log.DateTime).toDateString();
+          recentDays.add(logDate);
         });
-      }catch(e){
-        document.getElementById('kpi').textContent='Load failed: '+e.message;
+        document.getElementById('streak-days').textContent = recentDays.size;
+        
+        // ログ表示
+        const tbody = document.getElementById('logs-tbody');
+        tbody.innerHTML = '';
+        
+        if(logs.logs.length === 0) {
+          updateStatus('記録がありません。LINE Botで記録を開始しましょう！', 'warning');
+        } else {
+          updateStatus('データ読み込み完了', 'good');
+          document.getElementById('logs-table').style.display = 'table';
+          
+          logs.logs.slice(0, 20).forEach(r => {
+            const tr = document.createElement('tr');
+            const td1 = document.createElement('td'); 
+            td1.textContent = fmtJST(r.DateTime); 
+            tr.appendChild(td1);
+            
+            const td2 = document.createElement('td'); 
+            const kindEmoji = r.Kind === 'Meal' ? '🍽' : r.Kind === 'Gym' ? '💪' : '⚖️';
+            td2.textContent = kindEmoji + ' ' + r.Kind; 
+            tr.appendChild(td2);
+            
+            const td3 = document.createElement('td'); 
+            td3.textContent = r.Text; 
+            tr.appendChild(td3);
+            
+            tbody.appendChild(tr);
+          });
+        }
+        
+      } catch(e) {
+        console.error('Load failed:', e);
+        updateStatus('データの読み込みに失敗しました: ' + e.message, 'warning');
       }
-    })();
+    }
+    
+    // 初期読み込み
+    loadData();
   </script>
 </body></html>`);
 });
