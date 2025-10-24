@@ -409,8 +409,16 @@ router.get("/mypage", (req, res) => {
       try{
         const d = new Date(iso);
         if(isNaN(d.getTime())) return String(iso);
-        return d.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false,
-          year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        // JST変換（timeZone指定で自動変換）
+        return d.toLocaleString('ja-JP', { 
+          timeZone: 'Asia/Tokyo', 
+          hour12: false,
+          year: 'numeric', 
+          month: '2-digit', 
+          day: '2-digit', 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
       }catch(_){ return String(iso); }
     }
     
