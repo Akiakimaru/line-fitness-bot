@@ -438,7 +438,7 @@ router.get("/mypage", (req, res) => {
         
         const [summary, logs] = await Promise.all([
           j('/user/summary?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig)),
-          j('/user/logs?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig)+'&days=7')
+          j('/user/logs?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig)+'&days=8')
         ]);
         
         if(!summary.ok) throw new Error('summary failed');
@@ -458,7 +458,7 @@ router.get("/mypage", (req, res) => {
         });
         document.getElementById('streak-days').textContent = recentDays.size;
         
-        // ログ表示
+        // ログ表示（最新順にソート）
         const tbody = document.getElementById('logs-tbody');
         tbody.innerHTML = '';
         
@@ -468,7 +468,10 @@ router.get("/mypage", (req, res) => {
           updateStatus('データ読み込み完了', 'good');
           document.getElementById('logs-table').style.display = 'table';
           
-          logs.logs.slice(0, 20).forEach(r => {
+          // 最新順にソート（DateTime降順）
+          const sortedLogs = logs.logs.sort((a, b) => new Date(b.DateTime) - new Date(a.DateTime));
+          
+          sortedLogs.slice(0, 30).forEach(r => {
             const tr = document.createElement('tr');
             const td1 = document.createElement('td'); 
             td1.textContent = fmtJST(r.DateTime); 
