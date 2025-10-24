@@ -610,4 +610,32 @@ router.get("/admin/test-pfc", async (req, res) => {
   }
 });
 
+/* ========= Update Spreadsheet Headers ========= */
+router.get("/admin/update-headers", async (req, res) => {
+  const { key } = req.query;
+  if (key !== ADMIN_KEY) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+
+  try {
+    const { ensureLogsHeader } = require('../lib/sheets');
+    const { getJwt } = require('../lib/utils');
+    const { google } = require('googleapis');
+    
+    const jwt = getJwt();
+    const sheetsApi = google.sheets({ version: "v4", auth: jwt });
+    
+    console.log(`[admin/update-headers] Updating spreadsheet headers`);
+    await ensureLogsHeader(sheetsApi);
+    
+    res.json({
+      ok: true,
+      message: "Spreadsheet headers updated successfully"
+    });
+  } catch (error) {
+    console.error("[admin/update-headers] Error:", error);
+    res.status(500).json({ ok: false, error: String(error), stack: error.stack });
+  }
+});
+
 module.exports = router;
