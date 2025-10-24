@@ -568,11 +568,11 @@ router.get("/admin/pfc-stats", async (req, res) => {
   if (key !== ADMIN_KEY) {
     return res.status(401).json({ ok: false, error: "unauthorized" });
   }
-  
+
   try {
     const analysisDays = parseInt(days || "30", 10);
     const stats = await generateHistoricalPFCStats(analysisDays);
-    
+
     res.json({
       ok: true,
       stats: stats
@@ -580,6 +580,33 @@ router.get("/admin/pfc-stats", async (req, res) => {
   } catch (error) {
     console.error("[admin/pfc-stats] Error:", error);
     res.status(500).json({ ok: false, error: String(error) });
+  }
+});
+
+/* ========= PFC Test Endpoint ========= */
+router.get("/admin/test-pfc", async (req, res) => {
+  const { key, meal } = req.query;
+  if (key !== ADMIN_KEY) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+
+  try {
+    const { analyzeMealPFC } = require('../lib/pfcAnalyzer');
+    
+    const mealText = meal || "玄米200g\n鶏むね肉100g\nキャベツ3枚";
+    console.log(`[admin/test-pfc] Testing PFC analysis for: ${mealText}`);
+    
+    const pfcData = await analyzeMealPFC(mealText, { useCache: false, useBatch: false });
+    
+    res.json({
+      ok: true,
+      mealText: mealText,
+      pfcData: pfcData,
+      success: pfcData !== null
+    });
+  } catch (error) {
+    console.error("[admin/test-pfc] Error:", error);
+    res.status(500).json({ ok: false, error: String(error), stack: error.stack });
   }
 });
 
