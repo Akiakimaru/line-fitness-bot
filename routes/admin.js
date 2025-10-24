@@ -473,13 +473,12 @@ router.get("/mypage", (req, res) => {
         // PFCサマリーを表示（簡易版）
         if (mealLogs.length > 0) {
           const pfcSummary = document.createElement('div');
-          pfcSummary.innerHTML = `
-            <div style="background: #e8f5e8; padding: 12px; border-radius: 8px; margin: 12px 0; font-size: 12px;">
-              <strong>📊 7日間PFC合計</strong><br>
-              P: ${totalProtein.toFixed(1)}g | F: ${totalFat.toFixed(1)}g | C: ${totalCarbs.toFixed(1)}g<br>
-              カロリー: ${totalCalories.toFixed(0)}kcal (平均: ${(totalCalories/7).toFixed(0)}kcal/日)
-            </div>
-          `;
+          pfcSummary.innerHTML = 
+            '<div style="background: #e8f5e8; padding: 12px; border-radius: 8px; margin: 12px 0; font-size: 12px;">' +
+              '<strong>📊 7日間PFC合計</strong><br>' +
+              'P: ' + totalProtein.toFixed(1) + 'g | F: ' + totalFat.toFixed(1) + 'g | C: ' + totalCarbs.toFixed(1) + 'g<br>' +
+              'カロリー: ' + totalCalories.toFixed(0) + 'kcal (平均: ' + (totalCalories/7).toFixed(0) + 'kcal/日)' +
+            '</div>';
           document.querySelector('.logs-section').insertBefore(pfcSummary, document.getElementById('status-message'));
         }
         
@@ -521,7 +520,7 @@ router.get("/mypage", (req, res) => {
             // PFC情報がある場合は追加表示
             if (r.Kind === 'Meal' && r.PFC && r.PFC.total) {
               const { protein, fat, carbs, calories } = r.PFC.total;
-              content += `\n📊 P${protein}g F${fat}g C${carbs}g (${calories}kcal)`;
+              content += '\n📊 P' + protein + 'g F' + fat + 'g C' + carbs + 'g (' + calories + 'kcal)';
             }
             td3.textContent = content; 
             tr.appendChild(td3);
