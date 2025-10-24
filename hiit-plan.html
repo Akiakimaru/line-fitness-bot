@@ -36,11 +36,27 @@
       line-height: 1.5;
     }
     
-    .table-row { min-height: 44px; }
+    .table-row { min-height: 32px; }
     .table-row:nth-child(even) { background-color: rgba(0,0,0,0.05); }
     @media (prefers-color-scheme: dark) {
       .table-row:nth-child(even) { background-color: rgba(255,255,255,0.05); }
     }
+    
+    /* Compact table styling */
+    .compact-table th, .compact-table td { 
+      padding: 2px 4px; 
+      font-size: 11px; 
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .compact-table th { font-size: 10px; font-weight: 600; }
+    .compact-table .phase-col { width: 60px; }
+    .compact-table .set-col { width: 50px; }
+    .compact-table .time-col { width: 70px; }
+    .compact-table .load-col { width: 40px; }
+    .compact-table .cadence-col { width: 60px; }
+    .compact-table .hr-col { width: 70px; }
+    .compact-table .notes-col { width: 80px; }
     
     @media print {
       .print\\:block { display: block !important; }
@@ -63,9 +79,9 @@
 
   <div class="max-w-4xl mx-auto px-4 pb-8">
     <!-- SECTION: Quick Start -->
-    <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-6 mb-6">
-      <h2 class="text-xl font-semibold mb-4">クイックスタート</h2>
-      <ul class="space-y-2 mb-6">
+    <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mb-4">
+      <h2 class="text-lg font-semibold mb-3">クイックスタート</h2>
+      <ul class="space-y-1 mb-4 text-sm">
         <li class="flex items-start">
           <span class="text-red-500 mr-2">●</span>
           <span><strong>高強度：</strong>HR 165–175bpm（負荷20=30s / 負荷16=40s）</span>
@@ -91,25 +107,25 @@
     </div>
 
     <!-- SECTION: Plan Table -->
-    <div class="mb-6">
-      <div class="flex justify-between items-center mb-4">
-        <h2 class="text-xl font-semibold">プラン詳細</h2>
+    <div class="mb-4">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="text-lg font-semibold">プラン詳細</h2>
         <button id="timeToggle" class="bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 text-gray-800 dark:text-gray-200 px-3 py-1 rounded text-sm transition-colors">
           <span id="timeToggleText">秒表示</span>
         </button>
       </div>
       
       <div class="overflow-x-auto">
-        <table class="w-full border-collapse border border-gray-300 dark:border-gray-600">
+        <table class="w-full border-collapse border border-gray-300 dark:border-gray-600 compact-table">
           <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0">
             <tr>
-              <th class="border border-gray-300 dark:border-gray-600 px-3 py-2 text-left font-semibold">フェーズ</th>
-              <th class="border border-gray-300 dark:border-gray-600 px-3 py-2 text-left font-semibold">セット</th>
-              <th class="border border-gray-300 dark:border-gray-600 px-3 py-2 text-left font-semibold">時間</th>
-              <th class="border border-gray-300 dark:border-gray-600 px-3 py-2 text-left font-semibold">負荷</th>
-              <th class="border border-gray-300 dark:border-gray-600 px-3 py-2 text-left font-semibold">ケイデンス</th>
-              <th class="border border-gray-300 dark:border-gray-600 px-3 py-2 text-left font-semibold">心拍数</th>
-              <th class="border border-gray-300 dark:border-gray-600 px-3 py-2 text-left font-semibold">メモ</th>
+              <th class="border border-gray-300 dark:border-gray-600 text-left font-semibold phase-col">フェーズ</th>
+              <th class="border border-gray-300 dark:border-gray-600 text-left font-semibold set-col">セット</th>
+              <th class="border border-gray-300 dark:border-gray-600 text-left font-semibold time-col">時間</th>
+              <th class="border border-gray-300 dark:border-gray-600 text-left font-semibold load-col">負荷</th>
+              <th class="border border-gray-300 dark:border-gray-600 text-left font-semibold cadence-col">ケイデンス</th>
+              <th class="border border-gray-300 dark:border-gray-600 text-left font-semibold hr-col">心拍数</th>
+              <th class="border border-gray-300 dark:border-gray-600 text-left font-semibold notes-col">メモ</th>
             </tr>
           </thead>
           <tbody id="planTableBody">
@@ -120,10 +136,10 @@
     </div>
 
     <!-- SECTION: Variants -->
-    <div class="grid md:grid-cols-2 gap-6 mb-6">
-      <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
-        <h3 class="text-lg font-semibold text-blue-800 dark:text-blue-200 mb-3">Easier（簡単版）</h3>
-        <ul class="space-y-1 text-sm">
+    <div class="grid md:grid-cols-2 gap-4 mb-4">
+      <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+        <h3 class="text-base font-semibold text-blue-800 dark:text-blue-200 mb-2">Easier（簡単版）</h3>
+        <ul class="space-y-1 text-xs">
           <li>• 負荷20→16、負荷16→12</li>
           <li>• 高強度時間を30s→20sに短縮</li>
           <li>• セット数を7→5に削減</li>
@@ -131,9 +147,9 @@
         </ul>
       </div>
       
-      <div class="bg-red-50 dark:bg-red-900/20 rounded-lg p-4">
-        <h3 class="text-lg font-semibold text-red-800 dark:text-red-200 mb-3">Harder（上級版）</h3>
-        <ul class="space-y-1 text-sm">
+      <div class="bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
+        <h3 class="text-base font-semibold text-red-800 dark:text-red-200 mb-2">Harder（上級版）</h3>
+        <ul class="space-y-1 text-xs">
           <li>• 負荷20→24、負荷16→20</li>
           <li>• 高強度時間を40s→50sに延長</li>
           <li>• セット数を7→9に増加</li>
@@ -143,9 +159,9 @@
     </div>
 
     <!-- SECTION: Tips / Safety -->
-    <div class="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 mb-6">
-      <h3 class="text-lg font-semibold text-yellow-800 dark:text-yellow-200 mb-3">安全のためのポイント</h3>
-      <ul class="space-y-2 text-sm">
+    <div class="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3 mb-4">
+      <h3 class="text-base font-semibold text-yellow-800 dark:text-yellow-200 mb-2">安全のためのポイント</h3>
+      <ul class="space-y-1 text-xs">
         <li>• <strong>フォーム維持：</strong>背筋を伸ばし、肩甲骨を寄せる</li>
         <li>• <strong>立ち漕ぎ回避：</strong>座ったまま一定のリズムを保つ</li>
         <li>• <strong>胸郭の上下：</strong>深い呼吸で酸素供給を確保</li>
@@ -216,13 +232,13 @@
         const timeDisplay = showSeconds ? convertToSeconds(row.time) : row.time;
         
         tr.innerHTML = `
-          <td class="border border-gray-300 dark:border-gray-600 px-3 py-2">${row.phase}</td>
-          <td class="border border-gray-300 dark:border-gray-600 px-3 py-2">${row.set}</td>
-          <td class="border border-gray-300 dark:border-gray-600 px-3 py-2 font-mono">${timeDisplay}</td>
-          <td class="border border-gray-300 dark:border-gray-600 px-3 py-2">${row.load}</td>
-          <td class="border border-gray-300 dark:border-gray-600 px-3 py-2">${row.cadence}</td>
-          <td class="border border-gray-300 dark:border-gray-600 px-3 py-2">${row.hr}</td>
-          <td class="border border-gray-300 dark:border-gray-600 px-3 py-2">${row.notes}</td>
+          <td class="border border-gray-300 dark:border-gray-600 phase-col">${row.phase}</td>
+          <td class="border border-gray-300 dark:border-gray-600 set-col">${row.set}</td>
+          <td class="border border-gray-300 dark:border-gray-600 time-col font-mono">${timeDisplay}</td>
+          <td class="border border-gray-300 dark:border-gray-600 load-col">${row.load}</td>
+          <td class="border border-gray-300 dark:border-gray-600 cadence-col">${row.cadence}</td>
+          <td class="border border-gray-300 dark:border-gray-600 hr-col">${row.hr}</td>
+          <td class="border border-gray-300 dark:border-gray-600 notes-col">${row.notes}</td>
         `;
         
         tbody.appendChild(tr);
