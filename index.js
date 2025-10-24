@@ -10,6 +10,9 @@ const adminRouter = require("./routes/admin"); // /admin 系
 
 const app = express();
 
+/* ================= 静的ファイル配信 ================= */
+app.use(express.static('.'));
+
 /* ================= LINE 設定 ================= */
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,

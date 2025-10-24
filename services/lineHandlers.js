@@ -341,6 +341,16 @@ async function handleEvent(e, client) {
     });
   }
 
+  // 2.6) HIITプラン
+  if (msg.includes("HIIT") || msg.includes("hiit") || msg.includes("ヒット")) {
+    const base = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "";
+    const url = `${base.replace(/\/$/, "")}/hiit-plan.html`;
+    return client.replyMessage(e.replyToken, {
+      type: "text",
+      text: `🚴‍♂️ Cycling HIIT 20分プラン\n${url}\n\n高強度インターバルトレーニングの詳細プランです。負荷8/16/20、心拍数165-175bpmを目標に7セット行います。`,
+    });
+  }
+
   // 3) デフォルト応答（入口を明示）
   return client.replyMessage(e.replyToken, {
     type: "text",
@@ -352,6 +362,8 @@ async function handleEvent(e, client) {
         { type: "action", action: { type: "message", label: "食事ログ", text: "食事" } },
         { type: "action", action: { type: "message", label: "ジムログ", text: "ジム" } },
         { type: "action", action: { type: "message", label: "体重ログ", text: "体重" } },
+        { type: "action", action: { type: "message", label: "マイページ", text: "マイページ" } },
+        { type: "action", action: { type: "message", label: "HIITプラン", text: "HIIT" } },
       ],
     },
   });
