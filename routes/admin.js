@@ -618,8 +618,7 @@ router.get("/admin/update-headers", async (req, res) => {
   }
 
   try {
-    const { ensureLogsHeader } = require('../lib/sheets');
-    const { getJwt } = require('../lib/utils');
+    const { ensureLogsHeader, getJwt } = require('../lib/sheets');
     const { google } = require('googleapis');
     
     const jwt = getJwt();
