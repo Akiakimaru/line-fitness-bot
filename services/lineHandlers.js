@@ -3,6 +3,7 @@ const { getWeekAndDayJST, todayYMDJST, nowJST } = require("../lib/utils");
 const { signUserLink } = require("../lib/auth");
 const { loadMealPlan, registerUser, appendLogRecord, updateLogPFC } = require("../lib/sheets");
 const { analyzeMealPFC, analyzeMealPFCAsync } = require("../lib/pfcAnalyzer");
+const { generateWeeklyFeedback } = require("../lib/llm");
 
 /* ================= ユーティリティ ================= */
 
@@ -462,6 +463,44 @@ async function handleEvent(e, client) {
     });
   }
 
+  // 2.8) 週間フィードバック
+  if (msg.includes("フィードバック") || msg.includes("FB") || msg.includes("振り返り")) {
+    console.log(`[LINE Bot] Generating weekly feedback for userId: ${userId}`);
+    
+    try {
+      // フィードバック生成中のメッセージを送信
+      await client.replyMessage(e.replyToken, {
+        type: "text",
+        text: "📊 週間フィードバックを生成中です...\n少々お待ちください（10-20秒ほど）",
+      });
+      
+      // バックグラウンドでフィードバック生成
+      const feedback = await generateWeeklyFeedback(userId, 7);
+      
+      // フィードバックをプッシュメッセージで送信
+      await client.pushMessage({
+        to: userId,
+        messages: [{ type: "text", text: feedback }],
+      });
+      
+      console.log(`[LINE Bot] Weekly feedback sent to ${userId}`);
+      return;
+      
+    } catch (error) {
+      console.error(`[LINE Bot] Feedback generation error:`, error);
+      
+      // エラー時はプッシュメッセージで通知
+      await client.pushMessage({
+        to: userId,
+        messages: [{
+          type: "text",
+          text: `❌ フィードバック生成中にエラーが発生しました。\n\nエラー: ${error.message}\n\n後ほど再度お試しください。`,
+        }],
+      });
+      return;
+    }
+  }
+
   // 3) デフォルト応答（入口を明示）
   return client.replyMessage(e.replyToken, {
     type: "text",
@@ -473,6 +512,7 @@ async function handleEvent(e, client) {
         { type: "action", action: { type: "message", label: "食事ログ", text: "食事" } },
         { type: "action", action: { type: "message", label: "ジムログ", text: "ジム" } },
         { type: "action", action: { type: "message", label: "体重ログ", text: "体重" } },
+        { type: "action", action: { type: "message", label: "フィードバック", text: "フィードバック" } },
         { type: "action", action: { type: "message", label: "マイページ", text: "マイページ" } },
         { type: "action", action: { type: "message", label: "ジムメニュー", text: "ジムメニュー" } },
       ],
