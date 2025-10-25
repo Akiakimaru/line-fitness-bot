@@ -421,9 +421,14 @@ async function handleEvent(e, client) {
 
   // 2.5) マイページリンク
   if (msg.includes("マイページ")) {
-    const { uid, exp, sig } = signUserLink(e.source.userId, 60 * 60 * 24 * 7);
+    console.log(`[LINE Bot] Generating mypage link for userId: ${e.source.userId}`);
+    const signedLink = signUserLink(e.source.userId, 60 * 60 * 24 * 7);
+    console.log(`[LINE Bot] Generated signed link:`, signedLink);
+    
     const base = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "";
-    const url = `${base.replace(/\/$/, "")}/mypage?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
+    const url = `${base.replace(/\/$/, "")}/mypage?uid=${encodeURIComponent(signedLink.uid)}&exp=${encodeURIComponent(signedLink.exp)}&sig=${encodeURIComponent(signedLink.sig)}`;
+    console.log(`[LINE Bot] Final URL: ${url}`);
+    
     return client.replyMessage(e.replyToken, {
       type: "text",
       text: `マイページはこちらから\n${url}`,
@@ -443,9 +448,14 @@ async function handleEvent(e, client) {
 
   // 2.7) ジムメニュー
   if (msg.includes("ジムメニュー") || msg.includes("ジムメニュ") || msg.includes("トレーニング記録")) {
+    console.log(`[LINE Bot] Generating gym menu link for userId: ${userId}`);
+    const signedLink = signUserLink(userId, 86400); // 24時間有効
+    console.log(`[LINE Bot] Generated gym menu signed link:`, signedLink);
+    
     const base = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "";
-    const url = signUserLink(userId, 86400); // 24時間有効
-    const gymMenuUrl = `${base.replace(/\/$/, "")}/gym-menu?${url}`;
+    const gymMenuUrl = `${base.replace(/\/$/, "")}/gym-menu?uid=${encodeURIComponent(signedLink.uid)}&exp=${encodeURIComponent(signedLink.exp)}&sig=${encodeURIComponent(signedLink.sig)}`;
+    console.log(`[LINE Bot] Final gym menu URL: ${gymMenuUrl}`);
+    
     return client.replyMessage(e.replyToken, {
       type: "text",
       text: `💪 ジムメニュー（直近7日間）\n${gymMenuUrl}\n\n過去のトレーニング記録を確認できます。`,
