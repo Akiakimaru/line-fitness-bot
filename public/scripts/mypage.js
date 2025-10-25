@@ -102,6 +102,7 @@ async function loadData() {
     ]);
     
     console.log('API responses:', { summary, logs });
+    console.log('Summary ok:', summary.ok, 'Logs ok:', logs.ok);
     
     if (!summary.ok) {
       throw new Error('summary failed: ' + (summary.error || 'Unknown error'));
@@ -111,12 +112,18 @@ async function loadData() {
     }
     
     // KPI更新
-    document.getElementById('meal-count').textContent = summary.meals;
-    document.getElementById('gym-count').textContent = summary.gymSets;
-    document.getElementById('weight-count').textContent = logs.logs.filter(l => l.Kind === 'Weight').length;
+    console.log('Updating KPIs:', { 
+      meals: summary.data?.meals, 
+      gymSets: summary.data?.gymSets, 
+      weightCount: logs.data?.logs?.filter(l => l.Kind === 'Weight').length 
+    });
+    
+    document.getElementById('meal-count').textContent = summary.data?.meals || 0;
+    document.getElementById('gym-count').textContent = summary.data?.gymSets || 0;
+    document.getElementById('weight-count').textContent = logs.data?.logs?.filter(l => l.Kind === 'Weight').length || 0;
     
     // PFCサマリー計算
-    const mealLogs = logs.logs.filter(l => l.Kind === 'Meal' && l.PFC && l.PFC.total);
+    const mealLogs = logs.data?.logs?.filter(l => l.Kind === 'Meal' && l.PFC && l.PFC.total) || [];
     let totalProtein = 0, totalFat = 0, totalCarbs = 0, totalCalories = 0;
     mealLogs.forEach(log => {
       if (log.PFC && log.PFC.total) {
@@ -142,7 +149,7 @@ async function loadData() {
     // 連続記録日数（簡易版）
     const today = new Date();
     const recentDays = new Set();
-    logs.logs.forEach(log => {
+    (logs.data?.logs || []).forEach(log => {
       const logDate = new Date(log.DateTime).toDateString();
       recentDays.add(logDate);
     });
@@ -152,14 +159,14 @@ async function loadData() {
     const tbody = document.getElementById('logs-tbody');
     tbody.innerHTML = '';
     
-    if (logs.logs.length === 0) {
+    if ((logs.data?.logs || []).length === 0) {
       updateStatus('status-message', '記録がありません。LINE Botで記録を開始しましょう！', 'warning');
     } else {
       updateStatus('status-message', 'データ読み込み完了', 'good');
       document.getElementById('logs-table').style.display = 'table';
       
       // 最新順にソート（DateTime降順）
-      const sortedLogs = logs.logs.sort((a, b) => new Date(b.DateTime) - new Date(a.DateTime));
+      const sortedLogs = (logs.data?.logs || []).sort((a, b) => new Date(b.DateTime) - new Date(a.DateTime));
       
       sortedLogs.slice(0, 30).forEach(r => {
         const tr = document.createElement('tr');

@@ -46,6 +46,7 @@ router.get("/user/logs", userAuthMiddleware, async (req, res) => {
     const { uid } = req.query;
     const days = Math.max(1, Math.min(31, parseInt(req.query.days || "7", 10) || 7));
     const result = await getUserLogs(uid, days);
+    console.log(`[user/logs] Response for uid=${uid}, days=${days}:`, JSON.stringify(result, null, 2));
     res.json(result);
   } catch (e) {
     console.error("[user/logs] Error:", e);
@@ -63,11 +64,13 @@ router.get("/user/summary", userAuthMiddleware, async (req, res) => {
     const logs = (await readRecentLogs(days)).filter(r => r.UserId === uid);
     const summary = calculateUserSummary(logs);
     
-    res.json(successResponse({
+    const result = successResponse({
       uid,
       days,
       ...summary
-    }));
+    });
+    console.log(`[user/summary] Response for uid=${uid}, days=${days}:`, JSON.stringify(result, null, 2));
+    res.json(result);
   } catch (e) {
     console.error("[user/summary] Error:", e);
     res.status(500).json(errorResponse(String(e), 'サマリーの計算に失敗しました'));
