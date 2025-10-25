@@ -48,6 +48,18 @@ function openAdminPanel() {
 }
 
 /**
+ * デバッグページを開く（パラメータを引き継ぐ）
+ */
+function openDebugPage() {
+  if (!uid || !exp || !sig) {
+    alert('URLパラメータが不足しています。');
+    return;
+  }
+  const url = `/debug.html?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
+  window.open(url, '_blank');
+}
+
+/**
  * データを再読み込み
  */
 function refreshData() {
@@ -67,9 +79,14 @@ async function loadData() {
     
     console.log('Loading data for uid:', uid);
     
+    const summaryUrl = `/user/summary?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
+    const logsUrl = `/user/logs?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}&days=8`;
+    
+    console.log('API URLs:', { summaryUrl, logsUrl });
+    
     const [summary, logs] = await Promise.all([
-      apiCall(`/user/summary?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`),
-      apiCall(`/user/logs?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}&days=8`)
+      apiCall(summaryUrl),
+      apiCall(logsUrl)
     ]);
     
     console.log('API responses:', { summary, logs });

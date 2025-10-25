@@ -33,7 +33,19 @@
     // URLパラメータ表示
     const params = new URLSearchParams(window.location.search);
     const urlParamsDiv = document.getElementById('url-params');
-    urlParamsDiv.innerHTML = '<pre>' + JSON.stringify(Object.fromEntries(params), null, 2) + '</pre>';
+    
+    // パラメータをオブジェクトに変換
+    const paramObj = {};
+    for (const [key, value] of params.entries()) {
+      paramObj[key] = value;
+    }
+    
+    urlParamsDiv.innerHTML = '<pre>' + JSON.stringify(paramObj, null, 2) + '</pre>';
+    
+    // パラメータが空の場合の警告
+    if (Object.keys(paramObj).length === 0) {
+      urlParamsDiv.innerHTML += '<div class="error">⚠️ URLパラメータが検出されませんでした。マイページからアクセスしてください。</div>';
+    }
     
     // 静的ファイル読み込みテスト
     const staticFilesDiv = document.getElementById('static-files');
@@ -62,13 +74,18 @@
     
     if (uid && exp && sig) {
       const testUrl = `/user/summary?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
+      apiTestDiv.innerHTML = `<div>テストURL: <code>${testUrl}</code></div>`;
+      
       fetch(testUrl)
-        .then(response => response.json())
+        .then(response => {
+          apiTestDiv.innerHTML += `<div>HTTP Status: ${response.status}</div>`;
+          return response.json();
+        })
         .then(data => {
-          apiTestDiv.innerHTML = `<div class="success">API接続成功</div><pre>${JSON.stringify(data, null, 2)}</pre>`;
+          apiTestDiv.innerHTML += `<div class="success">API接続成功</div><pre>${JSON.stringify(data, null, 2)}</pre>`;
         })
         .catch(error => {
-          apiTestDiv.innerHTML = `<div class="error">API接続失敗: ${error.message}</div>`;
+          apiTestDiv.innerHTML += `<div class="error">API接続失敗: ${error.message}</div>`;
         });
     } else {
       apiTestDiv.innerHTML = '<div class="error">URLパラメータが不足しています</div>';

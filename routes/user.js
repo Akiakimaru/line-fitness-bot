@@ -1,9 +1,8 @@
 // routes/user.js - ユーザー向けページ
 const express = require('express');
 const router = express.Router();
-const { verifyUserLink } = require('../lib/utils');
 const { readRecentLogs } = require('../lib/sheets');
-const { userAuthMiddleware } = require('../lib/auth');
+const { userAuthMiddleware, verifyUserLink } = require('../lib/auth');
 const { getUserLogs, calculateUserSummary, successResponse, errorResponse } = require('../lib/api');
 
 /**
