@@ -6,6 +6,11 @@ const { uid, exp, sig } = params;
 
 console.log('MyPage params:', { uid, exp, sig });
 
+// デバッグ情報を表示
+if (!uid || !exp || !sig) {
+  showDebugInfo('URLパラメータが不足しています', { uid, exp, sig });
+}
+
 /**
  * LINE Botの説明を表示
  */

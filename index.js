@@ -18,7 +18,8 @@ app.use(requestLogger);
 app.use(rateLimitMiddleware(60000, 100)); // 1分間に100リクエストまで
 
 /* ================= 静的ファイル配信 ================= */
-app.use(express.static('.'));
+app.use(express.static('public')); // publicディレクトリを配信
+app.use(express.static('.')); // ルートディレクトリも配信（hiit-plan.html用）
 
 /* ================= LINE 設定 ================= */
 const config = {

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Debug - フィットネス管理</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .debug-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+    .error { color: red; }
+    .success { color: green; }
+  </style>
+</head>
+<body>
+  <h1>🐛 デバッグページ</h1>
+  
+  <div class="debug-section">
+    <h3>URLパラメータ</h3>
+    <div id="url-params"></div>
+  </div>
+  
+  <div class="debug-section">
+    <h3>静的ファイル読み込みテスト</h3>
+    <div id="static-files"></div>
+  </div>
+  
+  <div class="debug-section">
+    <h3>API接続テスト</h3>
+    <div id="api-test"></div>
+  </div>
+  
+  <script>
+    // URLパラメータ表示
+    const params = new URLSearchParams(window.location.search);
+    const urlParamsDiv = document.getElementById('url-params');
+    urlParamsDiv.innerHTML = '<pre>' + JSON.stringify(Object.fromEntries(params), null, 2) + '</pre>';
+    
+    // 静的ファイル読み込みテスト
+    const staticFilesDiv = document.getElementById('static-files');
+    const testFiles = [
+      '/styles/common.css',
+      '/scripts/common.js',
+      '/scripts/mypage.js'
+    ];
+    
+    testFiles.forEach(file => {
+      fetch(file)
+        .then(response => {
+          const status = response.ok ? 'success' : 'error';
+          staticFilesDiv.innerHTML += `<div class="${status}">${file}: ${response.status}</div>`;
+        })
+        .catch(error => {
+          staticFilesDiv.innerHTML += `<div class="error">${file}: ${error.message}</div>`;
+        });
+    });
+    
+    // API接続テスト
+    const apiTestDiv = document.getElementById('api-test');
+    const uid = params.get('uid');
+    const exp = params.get('exp');
+    const sig = params.get('sig');
+    
+    if (uid && exp && sig) {
+      const testUrl = `/user/summary?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
+      fetch(testUrl)
+        .then(response => response.json())
+        .then(data => {
+          apiTestDiv.innerHTML = `<div class="success">API接続成功</div><pre>${JSON.stringify(data, null, 2)}</pre>`;
+        })
+        .catch(error => {
+          apiTestDiv.innerHTML = `<div class="error">API接続失敗: ${error.message}</div>`;
+        });
+    } else {
+      apiTestDiv.innerHTML = '<div class="error">URLパラメータが不足しています</div>';
+    }
+  </script>
+</body>
+</html>
