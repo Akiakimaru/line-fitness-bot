@@ -33,7 +33,7 @@ async function loadGymMenus() {
       throw new Error('logs failed: ' + (logs.error || 'Unknown error'));
     }
     
-    const gymLogs = logs.logs.filter(l => l.Kind === 'Gym');
+    const gymLogs = (logs.data?.logs || []).filter(l => l.Kind === 'Gym');
     
     const container = document.getElementById('menu-container');
     container.innerHTML = '';

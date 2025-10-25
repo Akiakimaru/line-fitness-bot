@@ -59,6 +59,7 @@ async function loadFoodData(searchTerm = null) {
       throw new Error(response.error || 'データの取得に失敗しました');
     }
     
+    console.log('Food DB response data:', response.data);
     displayStats(response.data.stats);
     displayFoods(response.data.foodData, response.data.search);
     

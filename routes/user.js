@@ -39,6 +39,22 @@ router.get("/gym-menu", (req, res) => {
 });
 
 /**
+ * 食品データベースページ - 静的ファイルを配信
+ */
+router.get("/food-db", (req, res) => {
+  const { uid, exp, sig } = req.query;
+  console.log("[food-db] params:", { uid, exp, sig });
+  const isValid = verifyUserLink(String(uid || ""), Number(exp), String(sig || ""));
+  console.log("[food-db] verify result:", isValid);
+  if (!isValid) {
+    return res.status(401).send("unauthorized - check server logs for details");
+  }
+  
+  // 静的ファイルを配信
+  res.sendFile('food-db.html', { root: 'public' });
+});
+
+/**
  * ユーザーログAPI
  */
 router.get("/user/logs", userAuthMiddleware, async (req, res) => {
