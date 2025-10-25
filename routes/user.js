@@ -4,6 +4,7 @@ const router = express.Router();
 const { readRecentLogs } = require('../lib/sheets');
 const { userAuthMiddleware, verifyUserLink } = require('../lib/auth');
 const { getUserLogs, calculateUserSummary, successResponse, errorResponse } = require('../lib/api');
+const { dynamicDB } = require('../lib/pfcAnalyzer');
 
 /**
  * マイページ - 静的ファイルを配信
@@ -70,6 +71,48 @@ router.get("/user/summary", userAuthMiddleware, async (req, res) => {
   } catch (e) {
     console.error("[user/summary] Error:", e);
     res.status(500).json(errorResponse(String(e), 'サマリーの計算に失敗しました'));
+  }
+});
+
+/**
+ * 動的食品データベース参照API
+ */
+router.get("/user/food-db", userAuthMiddleware, async (req, res) => {
+  try {
+    const { search } = req.query;
+    const stats = dynamicDB.getStats();
+    
+    let foodData = {};
+    
+    if (search) {
+      // 検索機能
+      const searchTerm = search.toLowerCase();
+      const allFoods = dynamicDB.getAllFoods();
+      
+      for (const [foodName, data] of Object.entries(allFoods)) {
+        if (foodName.toLowerCase().includes(searchTerm)) {
+          foodData[foodName] = data;
+        }
+      }
+    } else {
+      // 全データ取得（制限付き）
+      const allFoods = dynamicDB.getAllFoods();
+      const entries = Object.entries(allFoods);
+      
+      // 最新の50件のみ表示
+      const recentEntries = entries.slice(-50);
+      foodData = Object.fromEntries(recentEntries);
+    }
+    
+    res.json(successResponse({
+      stats,
+      foodData,
+      search: search || null,
+      totalFound: Object.keys(foodData).length
+    }));
+  } catch (e) {
+    console.error("[user/food-db] Error:", e);
+    res.status(500).json(errorResponse(String(e), '食品データベースの取得に失敗しました'));
   }
 });
 

@@ -60,6 +60,18 @@ function openDebugPage() {
 }
 
 /**
+ * 食品データベースを開く
+ */
+function openFoodDB() {
+  if (!uid || !exp || !sig) {
+    alert('URLパラメータが不足しています。');
+    return;
+  }
+  const url = `/food-db?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
+  window.open(url, '_blank');
+}
+
+/**
  * データを再読み込み
  */
 function refreshData() {

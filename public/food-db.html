@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>食品データベース - フィットネス管理</title>
+  <link rel="stylesheet" href="/styles/common.css">
+  <style>
+    .search-section {
+      background: #f8f9fa;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+    
+    .search-input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    
+    .stat-card {
+      background: #e8f5e8;
+      padding: 12px;
+      border-radius: 6px;
+      text-align: center;
+    }
+    
+    .stat-number {
+      font-size: 18px;
+      font-weight: bold;
+      color: #28a745;
+    }
+    
+    .stat-label {
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+    }
+    
+    .food-item {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    
+    .food-name {
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    
+    .pfc-info {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      font-size: 12px;
+    }
+    
+    .pfc-item {
+      background: #f8f9fa;
+      padding: 6px;
+      border-radius: 4px;
+      text-align: center;
+    }
+    
+    .pfc-label {
+      font-weight: bold;
+      color: #666;
+    }
+    
+    .pfc-value {
+      color: #333;
+    }
+    
+    .no-results {
+      text-align: center;
+      color: #666;
+      padding: 40px;
+      font-style: italic;
+    }
+    
+    .loading {
+      text-align: center;
+      color: #666;
+      padding: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🍎 食品データベース</h1>
+      <p>学習済み食品のPFC情報</p>
+      <div style="margin-top: 12px;">
+        <a href="#" onclick="goBack()" style="font-size: 12px; color: #666;">← マイページに戻る</a>
+      </div>
+    </div>
+    
+    <div class="search-section">
+      <input type="text" id="search-input" class="search-input" placeholder="食品名で検索...">
+      <button onclick="searchFoods()" class="action-btn">🔍 検索</button>
+      <button onclick="loadAllFoods()" class="action-btn secondary">📋 全表示</button>
+    </div>
+    
+    <div id="stats-section" class="stats-grid" style="display: none;">
+      <div class="stat-card">
+        <div class="stat-number" id="total-foods">-</div>
+        <div class="stat-label">総食品数</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="original-foods">-</div>
+        <div class="stat-label">初期データ</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="learned-foods">-</div>
+        <div class="stat-label">学習済み</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="queue-size">-</div>
+        <div class="stat-label">学習待ち</div>
+      </div>
+    </div>
+    
+    <div id="food-list">
+      <div class="loading">データ読み込み中...</div>
+    </div>
+  </div>
+  
+  <script src="/scripts/common.js"></script>
+  <script src="/scripts/food-db.js"></script>
+</body>
+</html>
