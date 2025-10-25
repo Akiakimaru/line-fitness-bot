@@ -25,6 +25,25 @@ router.get("/admin", (req, res) => {
 });
 
 /**
+ * 環境変数確認（デバッグ用）
+ */
+router.get("/admin/env-check", (req, res) => {
+  const { key } = req.query;
+  if (key !== ADMIN_KEY) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+  
+  res.json({
+    ok: true,
+    env: {
+      MYPAGE_SECRET: process.env.MYPAGE_SECRET ? process.env.MYPAGE_SECRET.substring(0, 8) + '...' : 'NOT_SET',
+      ADMIN_KEY: process.env.ADMIN_KEY ? process.env.ADMIN_KEY.substring(0, 4) + '...' : 'NOT_SET',
+      NODE_ENV: process.env.NODE_ENV || 'NOT_SET'
+    }
+  });
+});
+
+/**
  * 今日のメニュー確認
  */
 router.get("/admin/today", async (req, res) => {
