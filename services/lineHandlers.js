@@ -1,5 +1,6 @@
 // services/lineHandlers.js
-const { getWeekAndDayJST, todayYMDJST, nowJST, signUserLink } = require("../lib/utils");
+const { getWeekAndDayJST, todayYMDJST, nowJST } = require("../lib/utils");
+const { signUserLink } = require("../lib/auth");
 const { loadMealPlan, registerUser, appendLogRecord, updateLogPFC } = require("../lib/sheets");
 const { analyzeMealPFC, analyzeMealPFCAsync } = require("../lib/pfcAnalyzer");
 
