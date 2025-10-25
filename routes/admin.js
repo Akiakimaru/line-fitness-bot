@@ -659,7 +659,7 @@ router.get("/admin/update-headers", async (req, res) => {
 });
 
 // 動的データベース統計情報
-app.get('/admin/db-stats', async (req, res) => {
+router.get('/admin/db-stats', async (req, res) => {
   const { key } = req.query;
   
   if (key !== ADMIN_KEY) {
