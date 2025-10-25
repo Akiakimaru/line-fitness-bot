@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MyPage - フィットネス管理</title>
+  <link rel="stylesheet" href="/styles/common.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📊 マイページ</h1>
+      <p>フィットネス管理ダッシュボード</p>
+    </div>
+    
+    <div id="kpi-grid" class="kpi-grid">
+      <div class="kpi-card meal">
+        <div class="kpi-number" id="meal-count">-</div>
+        <div class="kpi-label">食事記録</div>
+      </div>
+      <div class="kpi-card gym">
+        <div class="kpi-number" id="gym-count">-</div>
+        <div class="kpi-label">ジム記録</div>
+      </div>
+      <div class="kpi-card weight">
+        <div class="kpi-number" id="weight-count">-</div>
+        <div class="kpi-label">体重記録</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-number" id="streak-days">-</div>
+        <div class="kpi-label">連続記録日</div>
+      </div>
+    </div>
+    
+    <div class="action-grid">
+      <a href="#" class="action-btn" onclick="openLineBot()">📱 LINE Bot</a>
+      <a href="/hiit-plan.html" class="action-btn secondary">🚴‍♂️ HIITプラン</a>
+      <a href="#" class="action-btn secondary" onclick="openGymMenu()">💪 ジムメニュー</a>
+      <a href="#" class="action-btn secondary" onclick="showTodayMenu()">🍽 今日のメニュー</a>
+    </div>
+    
+    <div class="action-grid" style="margin-top: 12px;">
+      <a href="#" class="action-btn secondary" onclick="openAdminPanel()">⚙️ 管理画面</a>
+    </div>
+    
+    <div class="logs-section">
+      <h3>📝 最近の記録（7日間）</h3>
+      <div id="status-message" class="status-badge status-info">データ読み込み中...</div>
+      <table class="logs-table" id="logs-table" style="display:none">
+        <thead><tr><th>日時</th><th>種別</th><th>内容</th></tr></thead>
+        <tbody id="logs-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+  
+  <script src="/scripts/common.js"></script>
+  <script src="/scripts/mypage.js"></script>
+</body>
+</html>

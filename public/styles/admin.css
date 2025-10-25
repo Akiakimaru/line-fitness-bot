@@ -1,0 +1,163 @@
+/* 管理画面スタイル - LINE Fitness Bot */
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  padding: 16px;
+  background: #f5f5f5;
+  margin: 0;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 32px;
+  padding-bottom: 20px;
+  border-bottom: 3px solid #007bff;
+}
+
+.header h1 {
+  color: #333;
+  margin: 0;
+  font-size: 28px;
+}
+
+.header p {
+  color: #666;
+  margin: 8px 0 0 0;
+  font-size: 16px;
+}
+
+.section {
+  margin-bottom: 32px;
+}
+
+.section-title {
+  font-size: 20px;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  transition: all 0.2s;
+}
+
+.card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-description {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.card-button {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  transition: background 0.2s;
+}
+
+.card-button:hover {
+  background: #0056b3;
+}
+
+.card-button.secondary {
+  background: #6c757d;
+}
+
+.card-button.secondary:hover {
+  background: #545b62;
+}
+
+.card-button.success {
+  background: #28a745;
+}
+
+.card-button.success:hover {
+  background: #1e7e34;
+}
+
+.card-button.warning {
+  background: #ffc107;
+  color: #333;
+}
+
+.card-button.warning:hover {
+  background: #e0a800;
+}
+
+.card-button.danger {
+  background: #dc3545;
+}
+
+.card-button.danger:hover {
+  background: #c82333;
+}
+
+.status-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.status-online {
+  background: #28a745;
+}
+
+.status-offline {
+  background: #dc3545;
+}
+
+.status-warning {
+  background: #ffc107;
+}
+
+@media (max-width: 768px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  .container {
+    padding: 16px;
+  }
+}

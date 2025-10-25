@@ -7,8 +7,15 @@ const line = require("@line/bot-sdk");
 const { handleEvent } = require("./services/lineHandlers"); // 受信イベント処理
 require("./services/scheduler"); // 起動時にcron登録
 const adminRouter = require("./routes/admin"); // /admin 系
+const userRouter = require("./routes/user"); // /user 系
+const { requestLogger, errorHandler, corsMiddleware, rateLimitMiddleware } = require("./lib/middleware");
 
 const app = express();
+
+/* ================= ミドルウェア設定 ================= */
+app.use(corsMiddleware);
+app.use(requestLogger);
+app.use(rateLimitMiddleware(60000, 100)); // 1分間に100リクエストまで
 
 /* ================= 静的ファイル配信 ================= */
 app.use(express.static('.'));
@@ -43,8 +50,12 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
   }
 });
 
-/* ================= 管理系ルート ================= */
-app.use("/", adminRouter);
+/* ================= ルート設定 ================= */
+app.use("/", adminRouter); // 管理画面
+app.use("/", userRouter);  // ユーザー向けページ
+
+/* ================= エラーハンドリング ================= */
+app.use(errorHandler);
 
 /* ================= 起動 ================= */
 const PORT = process.env.PORT || 3000;
