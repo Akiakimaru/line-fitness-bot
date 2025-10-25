@@ -44,6 +44,27 @@ router.get("/admin/env-check", (req, res) => {
 });
 
 /**
+ * 署名生成テスト（デバッグ用）
+ */
+router.get("/admin/sign-test", (req, res) => {
+  const { key, uid } = req.query;
+  if (key !== ADMIN_KEY) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+  
+  const { signUserLink } = require('../lib/auth');
+  const testUserId = uid || 'U4c1c91fc93ab8a188ab2634eeaa34442';
+  const signedLink = signUserLink(testUserId, 86400);
+  
+  res.json({
+    ok: true,
+    testUserId,
+    signedLink,
+    url: `/mypage?uid=${encodeURIComponent(signedLink.uid)}&exp=${encodeURIComponent(signedLink.exp)}&sig=${encodeURIComponent(signedLink.sig)}`
+  });
+});
+
+/**
  * 今日のメニュー確認
  */
 router.get("/admin/today", async (req, res) => {
