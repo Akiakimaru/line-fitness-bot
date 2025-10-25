@@ -150,6 +150,233 @@ router.get("/admin/stats", async (req, res) => {
   }
 });
 
+/* ========= Admin Home ========= */
+router.get("/admin", (req, res) => {
+  const { key } = req.query;
+  if (key !== ADMIN_KEY) {
+    return res.status(401).send("unauthorized - check server logs for details");
+  }
+  
+  res.send(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LINE Fitness Bot - 管理画面</title>
+<style>
+  body{font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding:16px; background:#f5f5f5; margin:0}
+  .container{max-width:800px; margin:0 auto; background:white; border-radius:12px; padding:24px; box-shadow:0 2px 10px rgba(0,0,0,0.1)}
+  .header{text-align:center; margin-bottom:32px; padding-bottom:20px; border-bottom:3px solid #007bff}
+  .header h1{color:#333; margin:0; font-size:28px}
+  .header p{color:#666; margin:8px 0 0 0; font-size:16px}
+  .section{margin-bottom:32px}
+  .section-title{font-size:20px; font-weight:bold; color:#333; margin-bottom:16px; padding-bottom:8px; border-bottom:2px solid #e0e0e0}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:16px}
+  .card{background:#f8f9fa; border:1px solid #e0e0e0; border-radius:8px; padding:20px; transition:all 0.2s}
+  .card:hover{box-shadow:0 4px 12px rgba(0,0,0,0.1); transform:translateY(-2px)}
+  .card-title{font-size:16px; font-weight:bold; color:#333; margin-bottom:8px; display:flex; align-items:center; gap:8px}
+  .card-description{font-size:14px; color:#666; line-height:1.5; margin-bottom:16px}
+  .card-button{background:#007bff; color:white; border:none; padding:10px 16px; border-radius:6px; font-size:14px; cursor:pointer; text-decoration:none; display:inline-block; transition:background 0.2s}
+  .card-button:hover{background:#0056b3}
+  .card-button.secondary{background:#6c757d}
+  .card-button.secondary:hover{background:#545b62}
+  .card-button.success{background:#28a745}
+  .card-button.success:hover{background:#1e7e34}
+  .card-button.warning{background:#ffc107; color:#333}
+  .card-button.warning:hover{background:#e0a800}
+  .card-button.danger{background:#dc3545}
+  .card-button.danger:hover{background:#c82333}
+  .status-indicator{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:8px}
+  .status-online{background:#28a745}
+  .status-offline{background:#dc3545}
+  .status-warning{background:#ffc107}
+  @media (max-width: 768px) {
+    .grid{grid-template-columns:1fr}
+    .container{padding:16px}
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🤖 LINE Fitness Bot</h1>
+      <p>管理画面 - システム管理・監視・分析</p>
+    </div>
+    
+    <div class="section">
+      <h2 class="section-title">📊 ダッシュボード・監視</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            システムダッシュボード
+          </div>
+          <div class="card-description">
+            システム全体の状況を一覧表示。ユーザー数、ログ数、週次スケジュールの状況を確認できます。
+          </div>
+          <a href="/admin/dashboard?key=${key}" class="card-button">ダッシュボードを開く</a>
+        </div>
+        
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            システム統計
+          </div>
+          <div class="card-description">
+            リアルタイムのシステム統計情報。現在の週・日、ユーザー数、ログ数などを確認できます。
+          </div>
+          <a href="/admin/stats?key=${key}" class="card-button secondary">統計を確認</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2 class="section-title">👥 ユーザー・ログ管理</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            ユーザー一覧
+          </div>
+          <div class="card-description">
+            登録ユーザーの一覧と詳細情報。ユーザーID、表示名、開始日、最終アクセス日を確認できます。
+          </div>
+          <a href="/admin/users?key=${key}" class="card-button">ユーザー一覧</a>
+        </div>
+        
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            ログ一覧
+          </div>
+          <div class="card-description">
+            過去7日間の全ログを確認。食事、ジム、体重記録の詳細とPFC解析結果を表示します。
+          </div>
+          <a href="/admin/logs?key=${key}" class="card-button">ログ一覧</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2 class="section-title">🍽 PFC解析・栄養分析</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            過去データ解析
+          </div>
+          <div class="card-description">
+            過去30日間の食事データを一括でPFC解析。未解析の食事記録を自動で栄養分析します。
+          </div>
+          <a href="/admin/analyze-historical?key=${key}" class="card-button success">過去データ解析実行</a>
+        </div>
+        
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            PFC統計情報
+          </div>
+          <div class="card-description">
+            PFC解析の統計情報と傾向分析。解析成功率、平均カロリー、栄養バランスの傾向を確認できます。
+          </div>
+          <a href="/admin/pfc-stats?key=${key}" class="card-button secondary">PFC統計確認</a>
+        </div>
+        
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            PFC解析テスト
+          </div>
+          <div class="card-description">
+            個別の食事内容でPFC解析をテスト。GPT解析の動作確認とデバッグに使用します。
+          </div>
+          <a href="/admin/test-pfc?key=${key}" class="card-button warning">PFC解析テスト</a>
+        </div>
+        
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            動的データベース統計
+          </div>
+          <div class="card-description">
+            学習済み食品データベースの統計。元データ数、学習済み数、学習キュー状況を確認できます。
+          </div>
+          <a href="/admin/db-stats?key=${key}" class="card-button secondary">DB統計確認</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2 class="section-title">📅 スケジュール・配信管理</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            今日のメニュー確認
+          </div>
+          <div class="card-description">
+            今日配信予定のメニュー内容を確認。トレーニング・食事メニューの詳細を表示します。
+          </div>
+          <a href="/admin/today?key=${key}" class="card-button">今日のメニュー</a>
+        </div>
+        
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            次週メニュー検証
+          </div>
+          <div class="card-description">
+            次週のメニューデータを検証。CSVヘッダー、データ整合性、配信準備状況を確認できます。
+          </div>
+          <a href="/admin/nextweek-validate?key=${key}" class="card-button warning">次週メニュー検証</a>
+        </div>
+        
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            スロット配信
+          </div>
+          <div class="card-description">
+            手動でスロット配信を実行。特定の時間帯（朝、昼、夜）のメニューを即座に配信できます。
+          </div>
+          <a href="/admin/push-slot?key=${key}" class="card-button danger">スロット配信</a>
+        </div>
+        
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-online"></span>
+            自動生成実行
+          </div>
+          <div class="card-description">
+            週次メニューの自動生成を手動実行。AI生成による新しいメニューを作成します。
+          </div>
+          <a href="/admin/auto-gen?key=${key}" class="card-button success">自動生成実行</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2 class="section-title">🔧 システムメンテナンス</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="card-title">
+            <span class="status-indicator status-warning"></span>
+            スプレッドシートヘッダー更新
+          </div>
+          <div class="card-description">
+            Google Sheetsのヘッダー行を更新。新しい列（PFCJSON、ConfidenceScore）を追加します。
+          </div>
+          <a href="/admin/update-headers?key=${key}" class="card-button warning">ヘッダー更新</a>
+        </div>
+      </div>
+    </div>
+    
+    <div style="text-align:center; margin-top:32px; padding-top:20px; border-top:1px solid #e0e0e0; color:#666; font-size:14px">
+      <p>🤖 LINE Fitness Bot Management Console</p>
+      <p>最終更新: ${new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</p>
+    </div>
+  </div>
+</body>
+</html>`);
+});
+
 /* ✅ 追加：ダッシュボード（簡易HTML） */
 router.get("/admin/dashboard", (req, res) => {
   if (req.query.key !== ADMIN_KEY) return res.status(401).send("unauthorized");
@@ -380,8 +607,12 @@ router.get("/mypage", (req, res) => {
     <div class="action-grid">
       <a href="#" class="action-btn" onclick="openLineBot()">📱 LINE Bot</a>
       <a href="/hiit-plan.html" class="action-btn secondary">🚴‍♂️ HIITプラン</a>
-      <a href="/gym-menu?uid=${uid}&exp=${exp}&sig=${sig}" class="action-btn secondary">💪 ジムメニュー</a>
+      <a href="#" class="action-btn secondary" onclick="openGymMenu()">💪 ジムメニュー</a>
       <a href="#" class="action-btn secondary" onclick="showTodayMenu()">🍽 今日のメニュー</a>
+    </div>
+    
+    <div class="action-grid" style="margin-top: 12px;">
+      <a href="#" class="action-btn secondary" onclick="openAdminPanel()">⚙️ 管理画面</a>
     </div>
     
     <div class="logs-section">
@@ -437,6 +668,21 @@ router.get("/mypage", (req, res) => {
     
     function showTodayMenu() {
       alert('LINE Botで「今日のメニュー」と送信すると、当日のメニューが表示されます。');
+    }
+    
+    function openGymMenu() {
+      if (!uid || !exp || !sig) {
+        alert('URLパラメータが不足しています。');
+        return;
+      }
+      window.open('/gym-menu?uid=' + encodeURIComponent(uid) + '&exp=' + encodeURIComponent(exp) + '&sig=' + encodeURIComponent(sig), '_blank');
+    }
+    
+    function openAdminPanel() {
+      const adminKey = prompt('管理画面にアクセスするには管理者キーが必要です。\\n管理者キーを入力してください:');
+      if (adminKey) {
+        window.open('/admin?key=' + encodeURIComponent(adminKey), '_blank');
+      }
     }
     
     function refreshData() {
