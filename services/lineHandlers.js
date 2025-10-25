@@ -440,6 +440,17 @@ async function handleEvent(e, client) {
     });
   }
 
+  // 2.7) ジムメニュー
+  if (msg.includes("ジムメニュー") || msg.includes("ジムメニュ") || msg.includes("トレーニング記録")) {
+    const base = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "";
+    const url = signUserLink(userId, 86400); // 24時間有効
+    const gymMenuUrl = `${base.replace(/\/$/, "")}/gym-menu?${url}`;
+    return client.replyMessage(e.replyToken, {
+      type: "text",
+      text: `💪 ジムメニュー（直近7日間）\n${gymMenuUrl}\n\n過去のトレーニング記録を確認できます。`,
+    });
+  }
+
   // 3) デフォルト応答（入口を明示）
   return client.replyMessage(e.replyToken, {
     type: "text",
@@ -452,7 +463,7 @@ async function handleEvent(e, client) {
         { type: "action", action: { type: "message", label: "ジムログ", text: "ジム" } },
         { type: "action", action: { type: "message", label: "体重ログ", text: "体重" } },
         { type: "action", action: { type: "message", label: "マイページ", text: "マイページ" } },
-        { type: "action", action: { type: "message", label: "HIITプラン", text: "HIIT" } },
+        { type: "action", action: { type: "message", label: "ジムメニュー", text: "ジムメニュー" } },
       ],
     },
   });

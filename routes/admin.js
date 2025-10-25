@@ -380,8 +380,8 @@ router.get("/mypage", (req, res) => {
     <div class="action-grid">
       <a href="#" class="action-btn" onclick="openLineBot()">📱 LINE Bot</a>
       <a href="/hiit-plan.html" class="action-btn secondary">🚴‍♂️ HIITプラン</a>
+      <a href="/gym-menu?uid=${uid}&exp=${exp}&sig=${sig}" class="action-btn secondary">💪 ジムメニュー</a>
       <a href="#" class="action-btn secondary" onclick="showTodayMenu()">🍽 今日のメニュー</a>
-      <a href="#" class="action-btn secondary" onclick="refreshData()">🔄 更新</a>
     </div>
     
     <div class="logs-section">
@@ -399,6 +399,8 @@ router.get("/mypage", (req, res) => {
     const uid = qs.get('uid');
     const exp = qs.get('exp');
     const sig = qs.get('sig');
+    
+    console.log('MyPage params:', { uid, exp, sig });
     
     async function j(u){ 
       const r = await fetch(u); 
@@ -445,13 +447,21 @@ router.get("/mypage", (req, res) => {
       try {
         updateStatus('データ読み込み中...', 'info');
         
+        if (!uid || !exp || !sig) {
+          throw new Error('URLパラメータが不足しています: uid=' + uid + ', exp=' + exp + ', sig=' + sig);
+        }
+        
+        console.log('Loading data for uid:', uid);
+        
         const [summary, logs] = await Promise.all([
           j('/user/summary?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig)),
           j('/user/logs?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig)+'&days=8')
         ]);
         
-        if(!summary.ok) throw new Error('summary failed');
-        if(!logs.ok) throw new Error('logs failed');
+        console.log('API responses:', { summary, logs });
+        
+        if(!summary.ok) throw new Error('summary failed: ' + (summary.error || 'Unknown error'));
+        if(!logs.ok) throw new Error('logs failed: ' + (logs.error || 'Unknown error'));
         
         // KPI更新
         document.getElementById('meal-count').textContent = summary.meals;
@@ -532,6 +542,17 @@ router.get("/mypage", (req, res) => {
       } catch(e) {
         console.error('Load failed:', e);
         updateStatus('データの読み込みに失敗しました: ' + e.message, 'warning');
+        
+        // デバッグ情報を表示
+        const debugInfo = document.createElement('div');
+        debugInfo.style.cssText = 'background: #ffe6e6; padding: 12px; border-radius: 8px; margin: 12px 0; font-size: 12px; color: #d00;';
+        debugInfo.innerHTML = 
+          '<strong>🐛 デバッグ情報</strong><br>' +
+          'UID: ' + (uid || 'undefined') + '<br>' +
+          'EXP: ' + (exp || 'undefined') + '<br>' +
+          'SIG: ' + (sig ? sig.substring(0, 10) + '...' : 'undefined') + '<br>' +
+          'エラー: ' + e.message;
+        document.querySelector('.logs-section').insertBefore(debugInfo, document.getElementById('status-message'));
       }
     }
     
@@ -591,7 +612,7 @@ router.get("/admin/test-pfc", async (req, res) => {
   }
 
   try {
-    const { analyzeMealPFC } = require('../lib/pfcAnalyzer');
+    const { analyzeMealPFC, dynamicDB } = require('../lib/pfcAnalyzer');
     
     const mealText = meal || "玄米200g\n鶏むね肉100g\nキャベツ3枚";
     console.log(`[admin/test-pfc] Testing PFC analysis for: ${mealText}`);
@@ -635,6 +656,194 @@ router.get("/admin/update-headers", async (req, res) => {
     console.error("[admin/update-headers] Error:", error);
     res.status(500).json({ ok: false, error: String(error), stack: error.stack });
   }
+});
+
+// 動的データベース統計情報
+app.get('/admin/db-stats', async (req, res) => {
+  const { key } = req.query;
+  
+  if (key !== ADMIN_KEY) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+
+  try {
+    const { dynamicDB } = require('../lib/pfcAnalyzer');
+    const stats = dynamicDB.getStats();
+    
+    return res.json({
+      ok: true,
+      message: "動的データベース統計情報",
+      stats: stats
+    });
+    
+  } catch (error) {
+    console.error('[admin/db-stats] Error:', error);
+    return res.status(500).json({ 
+      ok: false, 
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// 直近7日間のジムメニュー表示
+router.get("/gym-menu", (req, res) => {
+  const { uid, exp, sig } = req.query;
+  console.log("[gym-menu] params:", { uid, exp, sig });
+  const isValid = verifyUserLink(String(uid || ""), Number(exp), String(sig || ""));
+  console.log("[gym-menu] verify result:", isValid);
+  if (!isValid) {
+    return res.status(401).send("unauthorized - check server logs for details");
+  }
+  
+  res.send(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ジムメニュー - フィットネス管理</title>
+<style>
+  body{font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding:16px; background:#f5f5f5; margin:0}
+  .container{max-width:600px; margin:0 auto; background:white; border-radius:12px; padding:20px; box-shadow:0 2px 10px rgba(0,0,0,0.1)}
+  .header{text-align:center; margin-bottom:24px; padding-bottom:16px; border-bottom:2px solid #e0e0e0}
+  .menu-grid{display:grid; gap:16px; margin-bottom:24px}
+  .menu-card{background:#f8f9fa; padding:16px; border-radius:8px; border-left:4px solid #dc3545}
+  .menu-date{font-size:14px; font-weight:bold; color:#333; margin-bottom:8px}
+  .menu-content{font-size:12px; color:#666; line-height:1.4}
+  .no-data{text-align:center; color:#999; padding:40px; font-style:italic}
+  .back-btn{background:#6c757d; color:white; border:none; padding:12px 24px; border-radius:8px; font-size:14px; cursor:pointer; text-decoration:none; display:inline-block; margin-bottom:20px}
+  .back-btn:hover{background:#545b62}
+  .status-badge{display:inline-block; padding:2px 8px; border-radius:12px; font-size:10px; font-weight:600}
+  .status-info{background:#d1ecf1; color:#0c5460}
+  .status-warning{background:#fff3cd; color:#856404}
+  @media (max-width: 480px) {
+    .container{padding:12px}
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <a href="/mypage?uid=${uid}&exp=${exp}&sig=${sig}" class="back-btn">← マイページに戻る</a>
+    
+    <div class="header">
+      <h1>💪 ジムメニュー</h1>
+      <p>直近7日間のトレーニング記録</p>
+    </div>
+    
+    <div id="status-message" class="status-badge status-info">データ読み込み中...</div>
+    
+    <div id="menu-container" class="menu-grid">
+      <!-- メニューがここに表示されます -->
+    </div>
+  </div>
+  
+  <script>
+    const qs = new URLSearchParams(window.location.search);
+    const uid = qs.get('uid');
+    const exp = qs.get('exp');
+    const sig = qs.get('sig');
+    
+    console.log('GymMenu params:', { uid, exp, sig });
+    
+    async function j(u){ 
+      const r = await fetch(u); 
+      if(!r.ok) throw new Error('HTTP '+r.status); 
+      return r.json(); 
+    }
+    
+    function fmtJST(iso){
+      try{
+        const d = new Date(iso);
+        if(isNaN(d.getTime())) return String(iso);
+        return d.toLocaleString('ja-JP', { 
+          timeZone: 'Asia/Tokyo', 
+          hour12: false,
+          year: 'numeric', 
+          month: '2-digit', 
+          day: '2-digit', 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+      }catch(_){ return String(iso); }
+    }
+    
+    function updateStatus(message, type = 'info') {
+      const statusEl = document.getElementById('status-message');
+      statusEl.textContent = message;
+      statusEl.className = 'status-badge status-' + type;
+    }
+    
+    async function loadGymMenus() {
+      try {
+        updateStatus('データ読み込み中...', 'info');
+        
+        if (!uid || !exp || !sig) {
+          throw new Error('URLパラメータが不足しています');
+        }
+        
+        const logs = await j('/user/logs?uid='+encodeURIComponent(uid)+'&exp='+encodeURIComponent(exp)+'&sig='+encodeURIComponent(sig)+'&days=7');
+        
+        if(!logs.ok) throw new Error('logs failed: ' + (logs.error || 'Unknown error'));
+        
+        const gymLogs = logs.logs.filter(l => l.Kind === 'Gym');
+        
+        const container = document.getElementById('menu-container');
+        container.innerHTML = '';
+        
+        if(gymLogs.length === 0) {
+          updateStatus('ジム記録がありません', 'warning');
+          container.innerHTML = '<div class="no-data">💪 まだジム記録がありません<br>LINE Botでトレーニングを記録しましょう！</div>';
+        } else {
+          updateStatus('データ読み込み完了', 'info');
+          
+          // 日付順にソート（新しい順）
+          const sortedLogs = gymLogs.sort((a, b) => new Date(b.DateTime) - new Date(a.DateTime));
+          
+          sortedLogs.forEach(log => {
+            const menuCard = document.createElement('div');
+            menuCard.className = 'menu-card';
+            
+            const date = document.createElement('div');
+            date.className = 'menu-date';
+            date.textContent = fmtJST(log.DateTime);
+            menuCard.appendChild(date);
+            
+            const content = document.createElement('div');
+            content.className = 'menu-content';
+            
+            // メタデータから詳細情報を抽出
+            if (log.Meta && log.Meta.parsed && Array.isArray(log.Meta.parsed)) {
+              let menuText = '';
+              log.Meta.parsed.forEach(exercise => {
+                if (exercise.name) {
+                  menuText += '🏋️ ' + exercise.name;
+                  if (exercise.sets && Array.isArray(exercise.sets)) {
+                    menuText += ' (' + exercise.sets.length + 'セット)';
+                  }
+                  if (exercise.minutes) {
+                    menuText += ' - ' + exercise.minutes + '分';
+                  }
+                  menuText += '\\n';
+                }
+              });
+              content.textContent = menuText || log.Text;
+            } else {
+              content.textContent = log.Text;
+            }
+            
+            menuCard.appendChild(content);
+            container.appendChild(menuCard);
+          });
+        }
+        
+      } catch(e) {
+        console.error('Load failed:', e);
+        updateStatus('データの読み込みに失敗しました: ' + e.message, 'warning');
+      }
+    }
+    
+    // 初期読み込み
+    loadGymMenus();
+  </script>
+</body>
+</html>`);
 });
 
 module.exports = router;
