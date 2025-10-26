@@ -73,11 +73,10 @@ async function loadFoodData(searchTerm = null) {
  * 統計情報を表示
  */
 function displayStats(stats) {
-  document.getElementById('total-foods').textContent = stats.total;
-  document.getElementById('original-foods').textContent = stats.original;
-  document.getElementById('learned-foods').textContent = stats.learned;
-  document.getElementById('queue-size').textContent = stats.queueSize;
-  document.getElementById('stats-section').style.display = 'grid';
+  document.getElementById('stat-total').textContent = stats.total || 0;
+  document.getElementById('stat-protein').textContent = stats.original || 0;
+  document.getElementById('stat-carb').textContent = stats.learned || 0;
+  document.getElementById('stat-confidence').textContent = stats.queueSize || 0;
 }
 
 /**
@@ -88,7 +87,12 @@ function displayFoods(foodData, searchTerm) {
   
   if (Object.keys(foodData).length === 0) {
     const message = searchTerm ? `「${searchTerm}」に一致する食品が見つかりませんでした。` : '食品データがありません。';
-    foodListDiv.innerHTML = `<div class="no-results">${message}</div>`;
+    foodListDiv.innerHTML = `
+      <div class="glass-effect rounded-2xl p-12 text-center shadow-xl border border-white/20">
+        <p class="text-7xl mb-6">🍎</p>
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">${message}</h2>
+      </div>
+    `;
     return;
   }
   
@@ -96,32 +100,40 @@ function displayFoods(foodData, searchTerm) {
   
   // 検索結果のヘッダー
   if (searchTerm) {
-    html += `<h3>🔍 検索結果: 「${searchTerm}」 (${Object.keys(foodData).length}件)</h3>`;
+    html += `
+      <div class="glass-effect rounded-xl p-4 mb-4 shadow-lg border border-white/20">
+        <h3 class="text-lg font-semibold text-gray-800">🔍 検索結果: 「${searchTerm}」 (${Object.keys(foodData).length}件)</h3>
+      </div>
+    `;
   } else {
-    html += `<h3>📋 食品一覧 (最新50件)</h3>`;
+    html += `
+      <div class="glass-effect rounded-xl p-4 mb-4 shadow-lg border border-white/20">
+        <h3 class="text-lg font-semibold text-gray-800">📋 食品一覧 (最新50件)</h3>
+      </div>
+    `;
   }
   
   // 食品データを表示
   for (const [foodName, data] of Object.entries(foodData)) {
     html += `
-      <div class="food-item">
-        <div class="food-name">${foodName}</div>
-        <div class="pfc-info">
-          <div class="pfc-item">
-            <div class="pfc-label">P</div>
-            <div class="pfc-value">${data.protein}g</div>
+      <div class="glass-effect rounded-xl p-5 shadow-lg border border-white/20 hover-lift">
+        <div class="font-bold text-gray-800 mb-3 text-lg">${foodName}</div>
+        <div class="grid grid-cols-4 gap-3">
+          <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-3 text-center border border-blue-100">
+            <div class="text-xs font-semibold text-blue-700 mb-1">タンパク質</div>
+            <div class="text-lg font-bold text-blue-900">${data.protein}g</div>
           </div>
-          <div class="pfc-item">
-            <div class="pfc-label">F</div>
-            <div class="pfc-value">${data.fat}g</div>
+          <div class="bg-gradient-to-br from-amber-50 to-orange-50 rounded-lg p-3 text-center border border-amber-100">
+            <div class="text-xs font-semibold text-amber-700 mb-1">脂質</div>
+            <div class="text-lg font-bold text-amber-900">${data.fat}g</div>
           </div>
-          <div class="pfc-item">
-            <div class="pfc-label">C</div>
-            <div class="pfc-value">${data.carbs}g</div>
+          <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-3 text-center border border-green-100">
+            <div class="text-xs font-semibold text-green-700 mb-1">炭水化物</div>
+            <div class="text-lg font-bold text-green-900">${data.carbs}g</div>
           </div>
-          <div class="pfc-item">
-            <div class="pfc-label">kcal</div>
-            <div class="pfc-value">${data.calories}</div>
+          <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg p-3 text-center border border-purple-100">
+            <div class="text-xs font-semibold text-purple-700 mb-1">カロリー</div>
+            <div class="text-lg font-bold text-purple-900">${data.calories}</div>
           </div>
         </div>
       </div>

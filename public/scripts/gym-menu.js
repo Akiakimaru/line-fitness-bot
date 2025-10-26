@@ -40,7 +40,13 @@ async function loadGymMenus() {
     
     if (gymLogs.length === 0) {
       updateStatus('status-message', 'ジム記録がありません', 'warning');
-      container.innerHTML = '<div class="no-data">💪 まだジム記録がありません<br>LINE Botでトレーニングを記録しましょう！</div>';
+      container.innerHTML = `
+        <div class="col-span-full glass-effect rounded-2xl p-12 text-center shadow-xl border border-white/20 animate-fade-in-up">
+          <p class="text-7xl mb-6">💪</p>
+          <h2 class="text-2xl font-bold text-gray-800 mb-4">まだジム記録がありません</h2>
+          <p class="text-gray-600 leading-relaxed">LINE Botでトレーニングを記録しましょう！</p>
+        </div>
+      `;
     } else {
       updateStatus('status-message', 'データ読み込み完了', 'info');
       
@@ -49,15 +55,15 @@ async function loadGymMenus() {
       
       sortedLogs.forEach(log => {
         const menuCard = document.createElement('div');
-        menuCard.className = 'menu-card';
+        menuCard.className = 'glass-effect rounded-2xl p-6 shadow-lg border border-white/20 hover-lift animate-fade-in-up';
         
         const date = document.createElement('div');
-        date.className = 'menu-date';
-        date.textContent = formatJST(log.DateTime);
+        date.className = 'text-sm font-semibold text-indigo-600 mb-3 flex items-center gap-2';
+        date.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg><span>${formatJST(log.DateTime)}</span>`;
         menuCard.appendChild(date);
         
         const content = document.createElement('div');
-        content.className = 'menu-content';
+        content.className = 'text-gray-700 whitespace-pre-line leading-relaxed';
         
         // メタデータから詳細情報を抽出
         if (log.Meta && log.Meta.parsed && Array.isArray(log.Meta.parsed)) {
@@ -71,7 +77,7 @@ async function loadGymMenus() {
               if (exercise.minutes) {
                 menuText += ' - ' + exercise.minutes + '分';
               }
-              menuText += '\\n';
+              menuText += '\n';
             }
           });
           content.textContent = menuText || log.Text;
