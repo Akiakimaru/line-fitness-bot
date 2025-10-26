@@ -468,79 +468,79 @@ async function handleEvent(e, client) {
   if (msg.includes("フィードバック") || msg.includes("FB") || msg.includes("振り返り")) {
     console.log(`[LINE Bot] Generating weekly feedback for userId: ${userId}`);
     
-    try {
-      // フィードバック生成中のメッセージを送信
-      await client.replyMessage(e.replyToken, {
-        type: "text",
-        text: "📊 週間フィードバックを生成中です...\n少々お待ちください（10-20秒ほど）",
+    // フィードバック生成中のメッセージを送信
+    await client.replyMessage(e.replyToken, {
+      type: "text",
+      text: "📊 週間フィードバックを生成中です...\n少々お待ちください（10-20秒ほど）",
+    });
+    
+    // バックグラウンドでフィードバック生成（非同期で実行）
+    generateWeeklyFeedback(userId, 7)
+      .then(feedback => {
+        // フィードバックをプッシュメッセージで送信
+        return client.pushMessage(userId, [
+          { type: "text", text: feedback }
+        ]);
+      })
+      .then(() => {
+        console.log(`[LINE Bot] Weekly feedback sent to ${userId}`);
+      })
+      .catch(error => {
+        console.error(`[LINE Bot] Feedback generation error:`, error);
+        
+        // エラー時はプッシュメッセージで通知
+        client.pushMessage(userId, [
+          {
+            type: "text",
+            text: `❌ フィードバック生成中にエラーが発生しました。\n\nエラー: ${error.message}\n\n後ほど再度お試しください。`,
+          }
+        ]).catch(pushError => {
+          console.error(`[LINE Bot] Failed to send error message:`, pushError);
+        });
       });
-      
-      // バックグラウンドでフィードバック生成
-      const feedback = await generateWeeklyFeedback(userId, 7);
-      
-      // フィードバックをプッシュメッセージで送信
-      await client.pushMessage({
-        to: userId,
-        messages: [{ type: "text", text: feedback }],
-      });
-      
-      console.log(`[LINE Bot] Weekly feedback sent to ${userId}`);
-      return;
-      
-    } catch (error) {
-      console.error(`[LINE Bot] Feedback generation error:`, error);
-      
-      // エラー時はプッシュメッセージで通知
-      await client.pushMessage({
-        to: userId,
-        messages: [{
-          type: "text",
-          text: `❌ フィードバック生成中にエラーが発生しました。\n\nエラー: ${error.message}\n\n後ほど再度お試しください。`,
-        }],
-      });
-      return;
-    }
+    
+    return;
   }
 
   // 2.9) 買い出し計画
   if (msg.includes("買い出し") || msg.includes("買い物") || msg.includes("買出し") || msg.includes("ショッピング")) {
     console.log(`[LINE Bot] Generating shopping plan for userId: ${userId}`);
     
-    try {
-      // 計画生成中のメッセージを送信
-      await client.replyMessage(e.replyToken, {
-        type: "text",
-        text: "📋 買い出し計画を生成中です...\n少々お待ちください（20-30秒ほど）",
+    // 計画生成中のメッセージを送信
+    await client.replyMessage(e.replyToken, {
+      type: "text",
+      text: "📋 買い出し計画を生成中です...\n少々お待ちください（20-30秒ほど）",
+    });
+    
+    // バックグラウンドで買い出し計画生成（非同期で実行）
+    generateShoppingPlan(userId)
+      .then(planJson => {
+        // 要約版をLINE表示用に整形
+        const summaryText = formatShoppingPlanForLine(planJson);
+        
+        // 計画をプッシュメッセージで送信
+        return client.pushMessage(userId, [
+          { type: "text", text: summaryText }
+        ]);
+      })
+      .then(() => {
+        console.log(`[LINE Bot] Shopping plan sent to ${userId}`);
+      })
+      .catch(error => {
+        console.error(`[LINE Bot] Shopping plan generation error:`, error);
+        
+        // エラー時はプッシュメッセージで通知
+        client.pushMessage(userId, [
+          {
+            type: "text",
+            text: `❌ 買い出し計画生成中にエラーが発生しました。\n\nエラー: ${error.message}\n\n後ほど再度お試しください。`,
+          }
+        ]).catch(pushError => {
+          console.error(`[LINE Bot] Failed to send error message:`, pushError);
+        });
       });
-      
-      // バックグラウンドで買い出し計画生成
-      const planJson = await generateShoppingPlan(userId);
-      
-      // 要約版をLINE表示用に整形
-      const summaryText = formatShoppingPlanForLine(planJson);
-      
-      // 計画をプッシュメッセージで送信
-      await client.pushMessage({
-        to: userId,
-        messages: [{ type: "text", text: summaryText }],
-      });
-      
-      console.log(`[LINE Bot] Shopping plan sent to ${userId}`);
-      return;
-      
-    } catch (error) {
-      console.error(`[LINE Bot] Shopping plan generation error:`, error);
-      
-      // エラー時はプッシュメッセージで通知
-      await client.pushMessage({
-        to: userId,
-        messages: [{
-          type: "text",
-          text: `❌ 買い出し計画生成中にエラーが発生しました。\n\nエラー: ${error.message}\n\n後ほど再度お試しください。`,
-        }],
-      });
-      return;
-    }
+    
+    return;
   }
 
   // 3) デフォルト応答（入口を明示）
