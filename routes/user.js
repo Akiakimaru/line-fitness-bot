@@ -5,6 +5,7 @@ const { readRecentLogs } = require('../lib/sheets');
 const { userAuthMiddleware, verifyUserLink } = require('../lib/auth');
 const { getUserLogs, calculateUserSummary, successResponse, errorResponse } = require('../lib/api');
 const { dynamicDB } = require('../lib/pfcAnalyzer');
+const { getActiveShoppingPlan } = require('../lib/sheets');
 
 /**
  * マイページ - 静的ファイルを配信
@@ -55,6 +56,38 @@ router.get("/food-db", (req, res) => {
 });
 
 /**
+ * 買い出し計画表示ページ - 静的ファイルを配信
+ */
+router.get("/shopping-plan-view", (req, res) => {
+  const { uid, exp, sig } = req.query;
+  console.log("[shopping-plan-view] params:", { uid, exp, sig });
+  const isValid = verifyUserLink(String(uid || ""), Number(exp), String(sig || ""));
+  console.log("[shopping-plan-view] verify result:", isValid);
+  if (!isValid) {
+    return res.status(401).send("unauthorized - check server logs for details");
+  }
+  
+  // 静的ファイルを配信
+  res.sendFile('shopping-plan-view.html', { root: 'public' });
+});
+
+/**
+ * 使い方ガイドページ - 静的ファイルを配信
+ */
+router.get("/guide", (req, res) => {
+  const { uid, exp, sig } = req.query;
+  console.log("[guide] params:", { uid, exp, sig });
+  const isValid = verifyUserLink(String(uid || ""), Number(exp), String(sig || ""));
+  console.log("[guide] verify result:", isValid);
+  if (!isValid) {
+    return res.status(401).send("unauthorized - check server logs for details");
+  }
+  
+  // 静的ファイルを配信
+  res.sendFile('guide.html', { root: 'public' });
+});
+
+/**
  * ユーザーログAPI
  */
 router.get("/user/logs", userAuthMiddleware, async (req, res) => {
@@ -90,6 +123,28 @@ router.get("/user/summary", userAuthMiddleware, async (req, res) => {
   } catch (e) {
     console.error("[user/summary] Error:", e);
     res.status(500).json(errorResponse(String(e), 'サマリーの計算に失敗しました'));
+  }
+});
+
+/**
+ * 買い出し計画取得API
+ */
+router.get("/user/shopping-plan", userAuthMiddleware, async (req, res) => {
+  try {
+    const { uid } = req.query;
+    
+    // 最新の有効な買い出し計画を取得
+    const plan = await getActiveShoppingPlan(uid);
+    
+    if (!plan) {
+      return res.json(successResponse({ plan: null }, '買い出し計画が見つかりません'));
+    }
+    
+    res.json(successResponse({ plan }, '買い出し計画を取得しました'));
+    
+  } catch (error) {
+    console.error('[user/shopping-plan] Error:', error);
+    res.status(500).json(errorResponse(String(error), '買い出し計画の取得に失敗しました'));
   }
 });
 

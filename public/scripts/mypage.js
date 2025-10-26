@@ -60,6 +60,30 @@ function openDebugPage() {
 }
 
 /**
+ * 買い出し計画を開く
+ */
+function openShoppingPlan() {
+  if (!uid || !exp || !sig) {
+    alert('URLパラメータが不足しています。');
+    return;
+  }
+  const url = `/shopping-plan-view?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
+  window.open(url, '_blank');
+}
+
+/**
+ * 使い方ガイドを開く
+ */
+function openGuide() {
+  if (!uid || !exp || !sig) {
+    alert('URLパラメータが不足しています。');
+    return;
+  }
+  const url = `/guide?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
+  window.open(url, '_blank');
+}
+
+/**
  * 食品データベースを開く
  */
 function openFoodDB() {

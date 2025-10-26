@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>使い方ガイド - LINE Fitness Bot</title>
+  <link rel="stylesheet" href="/styles/common.css">
+  <style>
+    .guide-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 1.5rem;
+      border-radius: 12px;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+    
+    .section {
+      background: white;
+      border: 2px solid #e9ecef;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .section-title {
+      font-size: 1.25rem;
+      font-weight: bold;
+      color: #495057;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid #dee2e6;
+    }
+    
+    .feature-list {
+      list-style: none;
+      padding: 0;
+    }
+    
+    .feature-item {
+      padding: 1rem;
+      margin-bottom: 1rem;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border-left: 4px solid #667eea;
+    }
+    
+    .feature-title {
+      font-weight: bold;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+    }
+    
+    .feature-emoji {
+      margin-right: 0.5rem;
+      font-size: 1.5rem;
+    }
+    
+    .feature-desc {
+      color: #6c757d;
+      font-size: 0.95rem;
+      margin-bottom: 0.5rem;
+    }
+    
+    .feature-command {
+      background: white;
+      padding: 0.5rem;
+      border-radius: 4px;
+      font-family: monospace;
+      color: #495057;
+      font-size: 0.9rem;
+    }
+    
+    .schedule-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+    }
+    
+    .schedule-table th,
+    .schedule-table td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid #dee2e6;
+    }
+    
+    .schedule-table th {
+      background: #f8f9fa;
+      font-weight: bold;
+    }
+    
+    .tips-box {
+      background: #d1ecf1;
+      border: 2px solid #17a2b8;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+    }
+    
+    .tips-title {
+      font-weight: bold;
+      color: #0c5460;
+      margin-bottom: 0.5rem;
+    }
+    
+    .tips-list {
+      list-style: none;
+      padding: 0;
+      color: #0c5460;
+    }
+    
+    .tips-list li {
+      padding: 0.25rem 0;
+      padding-left: 1.5rem;
+      position: relative;
+    }
+    
+    .tips-list li::before {
+      content: "💡";
+      position: absolute;
+      left: 0;
+    }
+    
+    .back-button {
+      display: inline-block;
+      margin-top: 1rem;
+      padding: 0.75rem 1.5rem;
+      background: #6c757d;
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: bold;
+    }
+    
+    .back-button:hover {
+      background: #5a6268;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="guide-header">
+      <h1>📖 使い方ガイド</h1>
+      <p>LINE Fitness Botの機能説明</p>
+    </div>
+    
+    <!-- 基本機能 -->
+    <div class="section">
+      <h2 class="section-title">📱 基本機能</h2>
+      
+      <ul class="feature-list">
+        <li class="feature-item">
+          <div class="feature-title">
+            <span class="feature-emoji">🍽</span>
+            <span>食事記録</span>
+          </div>
+          <div class="feature-desc">食事内容を記録すると、自動でPFC（タンパク質・脂質・炭水化物）を分析します。</div>
+          <div class="feature-command">コマンド: 「食事」と送信</div>
+        </li>
+        
+        <li class="feature-item">
+          <div class="feature-title">
+            <span class="feature-emoji">💪</span>
+            <span>ジム記録</span>
+          </div>
+          <div class="feature-desc">トレーニング内容を記録できます。種目・重量・回数を入力してください。</div>
+          <div class="feature-command">コマンド: 「ジム」と送信</div>
+        </li>
+        
+        <li class="feature-item">
+          <div class="feature-title">
+            <span class="feature-emoji">⚖️</span>
+            <span>体重記録</span>
+          </div>
+          <div class="feature-desc">体重を記録して推移を追跡します。</div>
+          <div class="feature-command">コマンド: 「体重」と送信</div>
+        </li>
+      </ul>
+    </div>
+    
+    <!-- 高度な機能 -->
+    <div class="section">
+      <h2 class="section-title">🚀 高度な機能</h2>
+      
+      <ul class="feature-list">
+        <li class="feature-item">
+          <div class="feature-title">
+            <span class="feature-emoji">📋</span>
+            <span>買い出し計画</span>
+          </div>
+          <div class="feature-desc">週2回の買い出しリストと作り置きレシピを自動生成します。減量期に最適化されたPFCバランスで提案。</div>
+          <div class="feature-command">コマンド: 「買い出し計画」と送信</div>
+        </li>
+        
+        <li class="feature-item">
+          <div class="feature-title">
+            <span class="feature-emoji">📊</span>
+            <span>週間フィードバック</span>
+          </div>
+          <div class="feature-desc">過去7日間の記録をAIが分析し、改善提案と来週のアクションプランを提供します。</div>
+          <div class="feature-command">コマンド: 「フィードバック」と送信</div>
+        </li>
+        
+        <li class="feature-item">
+          <div class="feature-title">
+            <span class="feature-emoji">📈</span>
+            <span>マイページ</span>
+          </div>
+          <div class="feature-desc">記録の一覧、統計、PFCサマリーを確認できます。</div>
+          <div class="feature-command">コマンド: 「マイページ」と送信</div>
+        </li>
+        
+        <li class="feature-item">
+          <div class="feature-title">
+            <span class="feature-emoji">🏋️</span>
+            <span>ジムメニュー</span>
+          </div>
+          <div class="feature-desc">直近7日間のトレーニング記録を確認できます。</div>
+          <div class="feature-command">コマンド: 「ジムメニュー」と送信</div>
+        </li>
+        
+        <li class="feature-item">
+          <div class="feature-title">
+            <span class="feature-emoji">🍎</span>
+            <span>食品データベース</span>
+          </div>
+          <div class="feature-desc">AIが学習した食材のPFC情報を検索・確認できます。</div>
+          <div class="feature-command">マイページから「食品データベース」ボタンをタップ</div>
+        </li>
+      </ul>
+    </div>
+    
+    <!-- 自動プッシュスケジュール -->
+    <div class="section">
+      <h2 class="section-title">⏰ 自動プッシュスケジュール</h2>
+      
+      <p>以下の時刻に自動でメッセージが届きます：</p>
+      
+      <table class="schedule-table">
+        <thead>
+          <tr>
+            <th>時刻</th>
+            <th>内容</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>5:00</td>
+            <td>🏋️ 今日のトレーニングメニュー</td>
+          </tr>
+          <tr>
+            <td>7:00</td>
+            <td>🍳 朝食メニュー + 調理手順（8時に食べる想定）</td>
+          </tr>
+          <tr>
+            <td>11:00</td>
+            <td>🍱 昼食メニュー + 調理手順（12時に食べる想定）</td>
+          </tr>
+          <tr>
+            <td>18:00</td>
+            <td>🍽 夕食メニュー + 調理手順（19時に食べる想定）</td>
+          </tr>
+          <tr>
+            <td>月曜 21:00</td>
+            <td>📋 来週の買い出し計画生成通知</td>
+          </tr>
+        </tbody>
+      </table>
+      
+      <div class="tips-box">
+        <div class="tips-title">💡 ポイント</div>
+        <ul class="tips-list">
+          <li>食事プッシュは買い出し計画を参照して自動生成されます</li>
+          <li>調理時間は10分以内を目安に設計されています</li>
+          <li>作り置きを活用して効率的に運用できます</li>
+        </ul>
+      </div>
+    </div>
+    
+    <!-- 記録のコツ -->
+    <div class="section">
+      <h2 class="section-title">✨ 記録のコツ</h2>
+      
+      <h3 style="margin-top: 1rem; margin-bottom: 0.5rem;">食事記録</h3>
+      <ul style="padding-left: 1.5rem; color: #495057;">
+        <li>食材名と量を入力すると、AIが自動でPFC分析</li>
+        <li>例: 「鶏むね肉 200g」「オートミール 30g」</li>
+        <li>複数の食材を改行で区切って入力可能</li>
+        <li>時刻を指定する場合は先頭に「12:30」のように記載</li>
+      </ul>
+      
+      <h3 style="margin-top: 1rem; margin-bottom: 0.5rem;">ジム記録</h3>
+      <ul style="padding-left: 1.5rem; color: #495057;">
+        <li>種目名と回数・重量を入力</li>
+        <li>例: 「ベンチプレス 50*10 3セット」</li>
+        <li>有酸素運動の場合: 「バイク 20分」</li>
+      </ul>
+      
+      <h3 style="margin-top: 1rem; margin-bottom: 0.5rem;">体重記録</h3>
+      <ul style="padding-left: 1.5rem; color: #495057;">
+        <li>数値のみ入力（小数点も使用可）</li>
+        <li>例: 「79.2」</li>
+        <li>毎日同じ時間に測定すると推移が正確に</li>
+      </ul>
+    </div>
+    
+    <!-- サポート -->
+    <div class="section">
+      <h2 class="section-title">❓ よくある質問</h2>
+      
+      <div style="margin-bottom: 1rem;">
+        <strong>Q: 記録を修正・削除したい</strong><br>
+        <span style="color: #6c757d;">A: 現在、記録の修正・削除機能は開発中です。誤入力の場合はそのまま残しておいてください。</span>
+      </div>
+      
+      <div style="margin-bottom: 1rem;">
+        <strong>Q: 食事のPFC分析が正確でない</strong><br>
+        <span style="color: #6c757d;">A: AIが学習しながら精度を向上させています。食品データベースで確認できます。</span>
+      </div>
+      
+      <div style="margin-bottom: 1rem;">
+        <strong>Q: 買い出し計画をカスタマイズしたい</strong><br>
+        <span style="color: #6c757d;">A: 現在は自動生成のみですが、今後カスタマイズ機能を追加予定です。</span>
+      </div>
+    </div>
+    
+    <div style="text-align: center;">
+      <a href="#" id="back-btn" class="back-button">⬅ マイページに戻る</a>
+    </div>
+  </div>
+  
+  <script src="/scripts/common.js"></script>
+  <script>
+    // URLパラメータを取得
+    const params = getUrlParams();
+    const { uid, exp, sig } = params;
+    
+    // マイページに戻るボタンの設定
+    function setupBackButton() {
+      const backBtn = document.getElementById('back-btn');
+      if (backBtn && uid && exp && sig) {
+        backBtn.href = `/mypage?uid=${encodeURIComponent(uid)}&exp=${encodeURIComponent(exp)}&sig=${encodeURIComponent(sig)}`;
+      }
+    }
+    
+    setupBackButton();
+  </script>
+</body>
+</html>
+

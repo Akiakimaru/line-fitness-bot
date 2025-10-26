@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>買い出し計画 - LINE Fitness Bot</title>
+  <link rel="stylesheet" href="/styles/common.css">
+  <style>
+    .plan-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 1.5rem;
+      border-radius: 12px;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+    
+    .plan-meta {
+      background: #f8f9fa;
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 1.5rem;
+    }
+    
+    .plan-meta-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #e9ecef;
+    }
+    
+    .plan-meta-item:last-child {
+      border-bottom: none;
+    }
+    
+    .trip-section {
+      background: white;
+      border: 2px solid #e9ecef;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .trip-title {
+      font-size: 1.25rem;
+      font-weight: bold;
+      color: #495057;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+    }
+    
+    .trip-title::before {
+      content: "🛒";
+      margin-right: 0.5rem;
+      font-size: 1.5rem;
+    }
+    
+    .category-group {
+      margin-bottom: 1.5rem;
+    }
+    
+    .category-title {
+      font-weight: bold;
+      color: #6c757d;
+      margin-bottom: 0.5rem;
+      padding-bottom: 0.25rem;
+      border-bottom: 2px solid #dee2e6;
+    }
+    
+    .item-list {
+      list-style: none;
+      padding: 0;
+    }
+    
+    .item-list li {
+      padding: 0.5rem 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .item-name {
+      font-weight: 500;
+    }
+    
+    .item-quantity {
+      color: #6c757d;
+      font-size: 0.9rem;
+    }
+    
+    .batch-cook-section {
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .batch-title {
+      font-size: 1.25rem;
+      font-weight: bold;
+      color: #856404;
+      margin-bottom: 1rem;
+    }
+    
+    .recipe-card {
+      background: white;
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+    }
+    
+    .recipe-name {
+      font-weight: bold;
+      margin-bottom: 0.5rem;
+    }
+    
+    .recipe-info {
+      font-size: 0.9rem;
+      color: #6c757d;
+    }
+    
+    .notes-section {
+      background: #d1ecf1;
+      border: 2px solid #17a2b8;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .notes-title {
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: #0c5460;
+      margin-bottom: 0.75rem;
+    }
+    
+    .notes-list {
+      list-style: none;
+      padding: 0;
+    }
+    
+    .notes-list li {
+      padding: 0.5rem 0;
+      padding-left: 1.5rem;
+      position: relative;
+    }
+    
+    .notes-list li::before {
+      content: "💡";
+      position: absolute;
+      left: 0;
+    }
+    
+    .no-plan {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #6c757d;
+    }
+    
+    .back-button {
+      display: inline-block;
+      margin-top: 1rem;
+      padding: 0.75rem 1.5rem;
+      background: #6c757d;
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: bold;
+    }
+    
+    .back-button:hover {
+      background: #5a6268;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="plan-header">
+      <h1>📋 買い出し計画</h1>
+      <p>最新の買い出し計画を表示しています</p>
+    </div>
+    
+    <div id="status-message" class="status-message"></div>
+    
+    <div id="plan-content"></div>
+    
+    <div style="text-align: center;">
+      <a href="#" id="back-btn" class="back-button">⬅ マイページに戻る</a>
+    </div>
+  </div>
+  
+  <script src="/scripts/common.js"></script>
+  <script src="/scripts/shopping-plan-view.js"></script>
+</body>
+</html>
+
