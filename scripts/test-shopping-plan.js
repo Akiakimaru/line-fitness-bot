@@ -3,7 +3,10 @@
  * 買い出し計画システムのテストスクリプト
  */
 
+// 最優先で環境変数を読み込む
 require('dotenv').config();
+
+// 環境変数が読み込まれた後にモジュールをインポート
 const { 
   ensureShoppingPlanHeader, 
   ensureDailyMenuHeader,
@@ -30,16 +33,17 @@ async function main() {
     // Test 1: Google Sheetsのシート作成テスト
     console.log('📋 Test 1: ShoppingPlanシートの作成確認');
     console.log('-'.repeat(60));
+    const { JWT } = require('google-auth-library');
     const { google } = require('googleapis');
-    const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-    const creds = JSON.parse(process.env.GOOGLE_SHEETS_CREDENTIALS_JSON || '{}');
-    const jwt = new google.auth.JWT(
-      creds.client_email,
-      null,
-      creds.private_key,
-      ['https://www.googleapis.com/auth/spreadsheets']
-    );
-    await jwt.authorize();
+    const SHEET_ID = process.env.GOOGLE_SHEET_ID;
+    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}');
+    
+    const jwt = new JWT({
+      email: creds.client_email,
+      key: creds.private_key,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets']
+    });
+    
     const sheetsApi = google.sheets({ version: 'v4', auth: jwt });
     
     await ensureShoppingPlanHeader(sheetsApi);
