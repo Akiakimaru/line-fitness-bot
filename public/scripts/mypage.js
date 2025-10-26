@@ -138,12 +138,12 @@ async function loadData() {
     // KPI更新
     console.log('Updating KPIs:', { 
       meals: summary.data?.meals, 
-      gymSets: summary.data?.gymSets, 
+      gymDays: summary.data?.gymDays,  // gymSets から gymDays に変更
       weightCount: logs.data?.logs?.filter(l => l.Kind === 'Weight').length 
     });
     
     document.getElementById('meal-count').textContent = summary.data?.meals || 0;
-    document.getElementById('gym-count').textContent = summary.data?.gymSets || 0;
+    document.getElementById('gym-count').textContent = summary.data?.gymDays || 0;  // gymSets から gymDays に変更
     document.getElementById('weight-count').textContent = logs.data?.logs?.filter(l => l.Kind === 'Weight').length || 0;
     
     // グラフ描画
