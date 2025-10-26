@@ -432,6 +432,23 @@ function renderPFCChart(logs) {
 }
 
 /**
+ * ジムログ用の日付換算（AM5時基準）- クライアント側
+ * AM5:00〜翌日AM4:59までを同じ日として換算
+ */
+function convertToGymDateClient(dateTime) {
+  const dt = new Date(dateTime);
+  
+  // 時刻が0:00〜4:59の場合は前日扱い
+  const hour = dt.getHours();
+  if (hour < 5) {
+    dt.setDate(dt.getDate() - 1);
+  }
+  
+  // YYYY-MM-DD形式で返す
+  return dt.toISOString().split('T')[0];
+}
+
+/**
  * ジムアクティビティヒートマップ
  */
 function renderGymHeatmap(logs) {
@@ -446,14 +463,15 @@ function renderGymHeatmap(logs) {
     days.push(date);
   }
   
-  // 各日のジム記録をカウント
+  // 各日のジム記録をカウント（AM5時基準で換算）
   const gymCounts = {};
   days.forEach(day => {
     const dayStr = day.toISOString().split('T')[0];
     const dayGymLogs = (logs.data?.logs || []).filter(l => {
       if (l.Kind !== 'Gym') return false;
-      const logDate = new Date(l.DateTime).toISOString().split('T')[0];
-      return logDate === dayStr;
+      // AM5時基準で日付を換算
+      const gymDate = convertToGymDateClient(l.DateTime);
+      return gymDate === dayStr;
     });
     gymCounts[dayStr] = dayGymLogs.length;
   });
@@ -490,14 +508,172 @@ function renderGymHeatmap(logs) {
     const cell = document.createElement('div');
     cell.className = `${bgColor} ${textColor} rounded-lg p-3 text-center text-xs font-semibold hover:scale-110 transition-transform cursor-pointer`;
     cell.title = `${day.getMonth() + 1}/${day.getDate()} (${weekDays[day.getDay()]}): ${tooltip}`;
+    cell.dataset.date = dayStr; // 日付をdata属性に保存
     cell.innerHTML = `
       <div class="text-[10px] opacity-75">${day.getDate()}</div>
       <div class="text-lg">${count > 0 ? '💪' : '·'}</div>
     `;
     
+    // クリックイベント（記録がある場合のみ）
+    if (count > 0) {
+      cell.addEventListener('click', () => showGymDetail(dayStr));
+    }
+    
     container.appendChild(cell);
   });
 }
+
+/**
+ * ジムログ詳細モーダルを表示
+ */
+async function showGymDetail(date) {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const uid = params.get('uid');
+    const exp = params.get('exp');
+    const sig = params.get('sig');
+    
+    console.log(`[showGymDetail] Fetching detail for date: ${date}`);
+    
+    // APIから詳細データを取得
+    const response = await fetch(`/user/gym-detail?uid=${uid}&exp=${exp}&sig=${sig}&date=${date}`);
+    const result = await response.json();
+    
+    if (!response.ok || !result.ok) {
+      throw new Error(result.message || 'データの取得に失敗しました');
+    }
+    
+    const data = result.data;
+    console.log('[showGymDetail] Received data:', data);
+    
+    // モーダルを表示
+    displayGymDetailModal(data);
+    
+  } catch (error) {
+    console.error('[showGymDetail] Error:', error);
+    alert('ジムログの詳細取得に失敗しました: ' + error.message);
+  }
+}
+
+/**
+ * ジムログ詳細モーダルの表示
+ */
+function displayGymDetailModal(data) {
+  // 既存のモーダルを削除
+  const existingModal = document.getElementById('gym-detail-modal');
+  if (existingModal) {
+    existingModal.remove();
+  }
+  
+  // 日付を整形
+  const dateObj = new Date(data.date + 'T00:00:00');
+  const dateStr = `${dateObj.getMonth() + 1}月${dateObj.getDate()}日`;
+  
+  // モーダルHTML生成
+  const modalHTML = `
+    <div id="gym-detail-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onclick="closeGymDetailModal(event)">
+      <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+        <!-- ヘッダー -->
+        <div class="bg-gradient-to-r from-green-500 to-emerald-600 p-6 text-white rounded-t-2xl">
+          <div class="flex justify-between items-center">
+            <div>
+              <h2 class="text-2xl font-bold">💪 ジムログ詳細</h2>
+              <p class="text-green-100 mt-1">${dateStr}</p>
+            </div>
+            <button onclick="closeGymDetailModal()" class="text-white hover:bg-white/20 rounded-full p-2 transition-colors">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        
+        <!-- サマリー -->
+        <div class="p-6 border-b border-gray-200">
+          <div class="grid grid-cols-2 gap-4">
+            <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4">
+              <div class="text-sm text-blue-600 font-medium">総セット数</div>
+              <div class="text-3xl font-bold text-blue-700 mt-1">${data.totalSets}</div>
+            </div>
+            <div class="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4">
+              <div class="text-sm text-purple-600 font-medium">総トレ時間</div>
+              <div class="text-3xl font-bold text-purple-700 mt-1">${data.totalMinutes}<span class="text-lg">分</span></div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 種目別詳細 -->
+        <div class="p-6">
+          <h3 class="text-lg font-bold text-gray-800 mb-4">📋 実施種目</h3>
+          ${data.exercises.length > 0 ? `
+            <div class="space-y-3">
+              ${data.exercises.map(ex => `
+                <div class="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
+                  <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                      <div class="font-bold text-gray-800">${ex.name}</div>
+                      <div class="text-sm text-gray-600 mt-1">
+                        ${ex.sets}セット
+                        ${ex.avgReps ? ` · 平均${ex.avgReps}回` : ''}
+                        ${ex.avgWeight ? ` · 平均${ex.avgWeight}kg` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  ${ex.reps && ex.reps.length > 0 ? `
+                    <div class="mt-2 flex flex-wrap gap-2">
+                      ${ex.reps.map((rep, idx) => `
+                        <span class="bg-white px-3 py-1 rounded-full text-xs font-medium text-gray-700 border border-gray-300">
+                          ${rep}回${ex.weights && ex.weights[idx] ? ` × ${ex.weights[idx]}kg` : ''}
+                        </span>
+                      `).join('')}
+                    </div>
+                  ` : ''}
+                </div>
+              `).join('')}
+            </div>
+          ` : '<p class="text-gray-500 text-center py-8">種目データがありません</p>'}
+        </div>
+        
+        <!-- 生ログ -->
+        ${data.logs.length > 0 ? `
+          <div class="p-6 bg-gray-50 rounded-b-2xl">
+            <details class="cursor-pointer">
+              <summary class="text-sm font-medium text-gray-700 hover:text-gray-900">📝 記録詳細を表示</summary>
+              <div class="mt-4 space-y-3">
+                ${data.logs.map((log, idx) => `
+                  <div class="bg-white rounded-lg p-4 border border-gray-200">
+                    <div class="text-xs text-gray-500 mb-2">記録${idx + 1} - ${new Date(log.dateTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</div>
+                    <div class="text-sm text-gray-800 whitespace-pre-wrap font-mono">${log.text}</div>
+                    ${log.meta && (log.meta.sets || log.meta.minutes) ? `
+                      <div class="text-xs text-gray-600 mt-2">
+                        ${log.meta.sets ? `${log.meta.sets}セット` : ''} ${log.meta.minutes ? `${log.meta.minutes}分` : ''}
+                      </div>
+                    ` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            </details>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+  
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
+/**
+ * ジムログ詳細モーダルを閉じる
+ */
+function closeGymDetailModal(event) {
+  const modal = document.getElementById('gym-detail-modal');
+  if (modal && (!event || event.target === modal)) {
+    modal.remove();
+  }
+}
+
+// グローバルに公開（HTML内のonclickから呼び出すため）
+window.closeGymDetailModal = closeGymDetailModal;
 
 // 初期読み込み
 loadData();

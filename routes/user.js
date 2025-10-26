@@ -6,6 +6,7 @@ const { userAuthMiddleware, verifyUserLink } = require('../lib/auth');
 const { getUserLogs, calculateUserSummary, successResponse, errorResponse } = require('../lib/api');
 const { dynamicDB } = require('../lib/pfcAnalyzer');
 const { getActiveShoppingPlan } = require('../lib/sheets');
+const { convertToGymDate } = require('../lib/utils');
 
 /**
  * マイページ - 静的ファイルを配信
@@ -187,6 +188,107 @@ router.get("/user/food-db", userAuthMiddleware, async (req, res) => {
   } catch (e) {
     console.error("[user/food-db] Error:", e);
     res.status(500).json(errorResponse(String(e), '食品データベースの取得に失敗しました'));
+  }
+});
+
+/**
+ * 特定日のジムログ詳細API
+ * AM5時基準で日付換算、同日の複数ログを合算
+ */
+router.get("/user/gym-detail", userAuthMiddleware, async (req, res) => {
+  try {
+    const { uid, date } = req.query;
+    
+    if (!uid || !date) {
+      return res.status(400).json(errorResponse('uid and date are required', 'ユーザーIDと日付が必要です'));
+    }
+    
+    // 過去30日分のログを取得
+    const allLogs = await readRecentLogs(30);
+    
+    // ユーザーのジムログのみをフィルタ
+    const userGymLogs = allLogs.filter(log => 
+      log.UserId === uid && log.Kind === 'Gym'
+    );
+    
+    // AM5時基準で日付を換算し、指定日付のログのみを抽出
+    const targetDateLogs = userGymLogs.filter(log => {
+      const gymDate = convertToGymDate(log.DateTime);
+      return gymDate === date;
+    });
+    
+    if (targetDateLogs.length === 0) {
+      return res.json(successResponse({ 
+        date,
+        logs: [],
+        totalSets: 0,
+        totalMinutes: 0,
+        exercises: []
+      }, '該当日のジムログが見つかりません'));
+    }
+    
+    // ログを時系列順にソート
+    targetDateLogs.sort((a, b) => new Date(a.DateTime) - new Date(b.DateTime));
+    
+    // ログを統合して集計
+    let totalSets = 0;
+    let totalMinutes = 0;
+    const exerciseMap = new Map(); // { exerciseName: { sets: 0, reps: [], weights: [] } }
+    
+    targetDateLogs.forEach(log => {
+      const meta = log.Meta || {};
+      const sets = parseInt(meta.sets) || 0;
+      const minutes = parseInt(meta.minutes) || 0;
+      
+      totalSets += sets;
+      totalMinutes += minutes;
+      
+      // テキストから種目を抽出（簡易パース）
+      const lines = (log.Text || '').split(/\n/);
+      lines.forEach(line => {
+        const match = line.match(/(.+?)[:：]\s*(\d+)(?:回|rep)?(?:\s*x\s*(\d+)(?:kg)?)?/i);
+        if (match) {
+          const exerciseName = match[1].trim();
+          const reps = parseInt(match[2]) || 0;
+          const weight = match[3] ? parseInt(match[3]) : null;
+          
+          if (!exerciseMap.has(exerciseName)) {
+            exerciseMap.set(exerciseName, { sets: 0, reps: [], weights: [] });
+          }
+          
+          const exercise = exerciseMap.get(exerciseName);
+          exercise.sets += 1;
+          if (reps > 0) exercise.reps.push(reps);
+          if (weight !== null) exercise.weights.push(weight);
+        }
+      });
+    });
+    
+    // 種目データを整形
+    const exercises = Array.from(exerciseMap.entries()).map(([name, data]) => ({
+      name,
+      sets: data.sets,
+      reps: data.reps.length > 0 ? data.reps : null,
+      weights: data.weights.length > 0 ? data.weights : null,
+      avgReps: data.reps.length > 0 ? Math.round(data.reps.reduce((a, b) => a + b, 0) / data.reps.length) : null,
+      avgWeight: data.weights.length > 0 ? Math.round(data.weights.reduce((a, b) => a + b, 0) / data.weights.length) : null
+    }));
+    
+    res.json(successResponse({
+      date,
+      logs: targetDateLogs.map(log => ({
+        dateTime: log.DateTime,
+        text: log.Text,
+        meta: log.Meta
+      })),
+      totalSets,
+      totalMinutes,
+      exercises
+    }));
+    
+  } catch (error) {
+    console.error('[user/gym-detail] Error:', error);
+    res.status(500).json(errorResponse(String(error), 'ジムログ詳細の取得に失敗しました'));
   }
 });
 

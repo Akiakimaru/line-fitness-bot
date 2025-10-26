@@ -98,11 +98,13 @@ RENDER_EXTERNAL_URL=https://your-app.onrender.com
 ## 📱 LINE Bot コマンド
 
 ### 基本コマンド
-- **食事**: 食事ログ記録
-- **ジム**: ジムログ記録
+- **食事**: 食事ログ記録（PFC自動分析）
+- **ジム**: ジムログ記録（AM5時基準で日付換算）
 - **体重**: 体重記録
 - **今日のメニュー**: 当日のメニュー表示
-- **マイページ**: 個人ダッシュボード
+- **マイページ**: 個人ダッシュボード（ジムカレンダー付き）
+- **フィードバック**: 週間記録のAI分析
+- **買い出し計画**: 週間メニュー＆買い物リスト生成
 - **HIIT**: HIITプランページ
 
 ### ログ記録例
@@ -117,12 +119,29 @@ RENDER_EXTERNAL_URL=https://your-app.onrender.com
 体重 79.2
 ```
 
+### 特殊機能
+- **ジムログの日付換算**: AM5:00〜翌日AM4:59を同じ日として記録
+  - 例：10/9 AM3:00 → 10/8として換算
+- **複数ログの自動合算**: 同日の複数記録を統合表示
+- **ジムカレンダー**: マイページのカレンダーから日別詳細を確認可能
+
 ## 🔗 API エンドポイント
 
 ### 公開エンドポイント
 - `GET /` - ヘルスチェック
 - `GET /hiit-plan.html` - HIITプランページ
 - `GET /mypage` - マイページ（署名付き）
+- `GET /gym-menu` - ジムメニューページ（署名付き）
+- `GET /food-db` - 食品データベース（署名付き）
+- `GET /shopping-plan-view` - 買い出し計画表示（署名付き）
+- `GET /guide` - 使い方ガイド（署名付き）
+
+### ユーザーAPI（署名認証）
+- `GET /user/logs?uid=...&days=7` - ユーザーログ取得
+- `GET /user/summary?uid=...&days=7` - ユーザーサマリー取得
+- `GET /user/gym-detail?uid=...&date=YYYY-MM-DD` - **特定日のジムログ詳細（NEW）**
+- `GET /user/food-db?search=...` - 食品データベース検索
+- `GET /user/shopping-plan?uid=...` - 買い出し計画取得
 
 ### 管理エンドポイント（認証必須）
 - `GET /admin/dashboard?key=...` - 管理ダッシュボード
@@ -138,7 +157,9 @@ RENDER_EXTERNAL_URL=https://your-app.onrender.com
 ### Google Sheets構成
 - **MealPlan**: 週間メニューデータ
 - **Users**: ユーザー情報
-- **Logs**: ログデータ
+- **Logs**: ログデータ（DateTime, UserId, Kind, Text, Meta, PFCJSON, ConfidenceScore）
+- **ShoppingPlan**: 買い出し計画（Week, UserId, GeneratedAt, ValidFrom, ValidUntil, PlanJSON, Status）
+- **DailyMenu**: 日次メニュー（Date, Week, Day, Slot, MenuName, IngredientsJSON, Recipe, CookingTime, PFCJSON, SourcePlan）
 
 ### ログデータ形式
 ```json
@@ -147,7 +168,32 @@ RENDER_EXTERNAL_URL=https://your-app.onrender.com
   "UserId": "U123...",
   "Kind": "Meal|Gym|Weight",
   "Text": "記録内容",
-  "MetaJSON": "{\"time\":\"12:30\",\"parsed\":{...}}"
+  "Meta": {"sets": 15, "minutes": 60},
+  "PFCJSON": "{\"protein\":25,\"fat\":10,\"carbs\":30}",
+  "ConfidenceScore": 0.85
+}
+```
+
+### ジムログ詳細API レスポンス
+```json
+{
+  "ok": true,
+  "data": {
+    "date": "2025-10-26",
+    "logs": [...],
+    "totalSets": 15,
+    "totalMinutes": 60,
+    "exercises": [
+      {
+        "name": "ベンチプレス",
+        "sets": 3,
+        "reps": [10, 8, 6],
+        "weights": [60, 70, 80],
+        "avgReps": 8,
+        "avgWeight": 70
+      }
+    ]
+  }
 }
 ```
 
