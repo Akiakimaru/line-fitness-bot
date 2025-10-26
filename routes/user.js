@@ -231,48 +231,83 @@ router.get("/user/gym-detail", userAuthMiddleware, async (req, res) => {
     targetDateLogs.sort((a, b) => new Date(a.DateTime) - new Date(b.DateTime));
     
     // ログを統合して集計
+    const { parseGymLogText } = require('../lib/utils');
     let totalSets = 0;
     let totalMinutes = 0;
-    const exerciseMap = new Map(); // { exerciseName: { sets: 0, reps: [], weights: [] } }
+    const exerciseMap = new Map(); // { exerciseName: { sets: [], type: string } }
     
     targetDateLogs.forEach(log => {
       const meta = log.Meta || {};
-      const sets = parseInt(meta.sets) || 0;
-      const minutes = parseInt(meta.minutes) || 0;
       
-      totalSets += sets;
-      totalMinutes += minutes;
-      
-      // テキストから種目を抽出（簡易パース）
-      const lines = (log.Text || '').split(/\n/);
-      lines.forEach(line => {
-        const match = line.match(/(.+?)[:：]\s*(\d+)(?:回|rep)?(?:\s*x\s*(\d+)(?:kg)?)?/i);
-        if (match) {
-          const exerciseName = match[1].trim();
-          const reps = parseInt(match[2]) || 0;
-          const weight = match[3] ? parseInt(match[3]) : null;
-          
-          if (!exerciseMap.has(exerciseName)) {
-            exerciseMap.set(exerciseName, { sets: 0, reps: [], weights: [] });
+      // 新形式: Meta.parsed が存在する場合（構造化済み）
+      if (meta.parsed && Array.isArray(meta.parsed)) {
+        totalSets += meta.sets || 0;
+        totalMinutes += meta.minutes || 0;
+        
+        meta.parsed.forEach(exercise => {
+          const name = exercise.name;
+          if (!exerciseMap.has(name)) {
+            exerciseMap.set(name, { sets: [], type: exercise.type || 'other' });
           }
-          
-          const exercise = exerciseMap.get(exerciseName);
-          exercise.sets += 1;
-          if (reps > 0) exercise.reps.push(reps);
-          if (weight !== null) exercise.weights.push(weight);
-        }
-      });
+          const ex = exerciseMap.get(name);
+          if (exercise.sets && Array.isArray(exercise.sets)) {
+            ex.sets.push(...exercise.sets);
+          }
+          if (exercise.minutes) {
+            ex.minutes = (ex.minutes || 0) + exercise.minutes;
+          }
+        });
+      } else {
+        // 旧形式: テキストから解析（既存ログ対応）
+        const parsed = parseGymLogText(log.Text || '');
+        totalSets += parsed.totalSets;
+        totalMinutes += parsed.totalMinutes;
+        
+        parsed.exercises.forEach(exercise => {
+          const name = exercise.name;
+          if (!exerciseMap.has(name)) {
+            exerciseMap.set(name, { sets: [], type: exercise.type || 'other' });
+          }
+          const ex = exerciseMap.get(name);
+          if (exercise.sets && Array.isArray(exercise.sets)) {
+            ex.sets.push(...exercise.sets);
+          }
+          if (exercise.minutes) {
+            ex.minutes = (ex.minutes || 0) + exercise.minutes;
+          }
+        });
+      }
     });
     
     // 種目データを整形
-    const exercises = Array.from(exerciseMap.entries()).map(([name, data]) => ({
-      name,
-      sets: data.sets,
-      reps: data.reps.length > 0 ? data.reps : null,
-      weights: data.weights.length > 0 ? data.weights : null,
-      avgReps: data.reps.length > 0 ? Math.round(data.reps.reduce((a, b) => a + b, 0) / data.reps.length) : null,
-      avgWeight: data.weights.length > 0 ? Math.round(data.weights.reduce((a, b) => a + b, 0) / data.weights.length) : null
-    }));
+    const exercises = Array.from(exerciseMap.entries()).map(([name, data]) => {
+      const result = {
+        name,
+        type: data.type,
+        totalSets: data.sets.length
+      };
+      
+      if (data.sets.length > 0) {
+        const reps = data.sets.map(s => s.reps).filter(r => r > 0);
+        const weights = data.sets.map(s => s.weight).filter(w => w !== null && w !== undefined);
+        
+        if (reps.length > 0) {
+          result.avgReps = Math.round(reps.reduce((a, b) => a + b, 0) / reps.length);
+          result.reps = reps;
+        }
+        if (weights.length > 0) {
+          result.avgWeight = Math.round(weights.reduce((a, b) => a + b, 0) / weights.length);
+          result.weights = weights;
+        }
+        result.sets = data.sets;
+      }
+      
+      if (data.minutes) {
+        result.minutes = data.minutes;
+      }
+      
+      return result;
+    });
     
     res.json(successResponse({
       date,

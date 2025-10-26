@@ -225,13 +225,19 @@ async function handlePendingInput(userId, text, client, replyToken) {
   }
 
   if (st.mode === "gym") {
-    const parsed = parseGymText(text);
+    const { parseGymLogText } = require('../lib/utils');
+    const parsed = parseGymLogText(text.trim());
     const rec = {
       DateTime: ts.toISOString(),
       UserId: userId,
       Kind: "Gym",
       Text: text.trim(),
-      MetaJSON: JSON.stringify({ time: st.timeHHMM || null, parsed }),
+      MetaJSON: JSON.stringify({ 
+        time: st.timeHHMM || null, 
+        parsed: parsed.exercises,
+        sets: parsed.totalSets,
+        minutes: parsed.totalMinutes
+      }),
     };
     await appendLogRecord(rec);
     await client.replyMessage(replyToken, {
@@ -350,6 +356,7 @@ async function handleEvent(e, client) {
 
     // ジムワンショット（例: "ジム\nベンチ 50*10" / "ジム 07:05\nバイク 15分"）
     if (cmd === "ジム" && body) {
+      const { parseGymLogText } = require('../lib/utils');
       const { time, body: gymBody } = extractTimeAndBody(`${cmd} ${headTail}\n${body}`.trim());
       const jstNow = nowJST();
       let ts = jstNow;
@@ -358,13 +365,18 @@ async function handleEvent(e, client) {
         ts = new Date(jstNow);
         ts.setHours(hh, mm, 0, 0);
       }
-      const parsedGym = parseGymText(gymBody);
+      const parsed = parseGymLogText(gymBody.trim());
       const rec = {
         DateTime: ts.toISOString(),
         UserId: e.source.userId,
         Kind: "Gym",
         Text: gymBody.trim(),
-        MetaJSON: JSON.stringify({ time: time || null, parsed: parsedGym }),
+        MetaJSON: JSON.stringify({ 
+          time: time || null, 
+          parsed: parsed.exercises,
+          sets: parsed.totalSets,
+          minutes: parsed.totalMinutes
+        }),
       };
       await appendLogRecord(rec);
       return client.replyMessage(e.replyToken, {

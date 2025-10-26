@@ -556,6 +556,63 @@ async function showGymDetail(date) {
 }
 
 /**
+ * 種目リストHTMLを生成
+ */
+function generateExercisesList(exercises) {
+  if (!exercises || exercises.length === 0) {
+    return '<p class="text-gray-500 text-center py-8">種目データがありません</p>';
+  }
+  
+  return `
+    <div class="space-y-3">
+      ${exercises.map(ex => {
+        const typeIcon = ex.type === 'cardio' ? '🏃' : ex.type === 'strength' ? '💪' : '🔹';
+        
+        // 有酸素運動の場合
+        if (ex.type === 'cardio') {
+          return `
+            <div class="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+              <div class="font-bold text-gray-800">${typeIcon} ${ex.name}</div>
+              <div class="text-sm text-gray-600 mt-1">
+                ${ex.minutes || 0}分
+                ${ex.distance ? ` · ${ex.distance}km` : ''}
+                ${ex.calories ? ` · ${ex.calories}kcal` : ''}
+              </div>
+            </div>
+          `;
+        }
+        
+        // 筋トレの場合
+        let setsHTML = '';
+        if (ex.sets && ex.sets.length > 0) {
+          setsHTML = `
+            <div class="mt-2 flex flex-wrap gap-2">
+              ${ex.sets.map(set => `
+                <span class="bg-white px-3 py-1 rounded-full text-xs font-medium text-gray-700 border border-gray-300">
+                  ${set.reps || 0}回${set.weight ? ` × ${set.weight}kg` : ''}
+                </span>
+              `).join('')}
+            </div>
+          `;
+        }
+        
+        return `
+          <div class="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
+            <div class="font-bold text-gray-800">${typeIcon} ${ex.name}</div>
+            <div class="text-sm text-gray-600 mt-1">
+              ${ex.totalSets || 0}セット
+              ${ex.avgReps ? ` · 平均${ex.avgReps}回` : ''}
+              ${ex.avgWeight ? ` · 平均${ex.avgWeight}kg` : ''}
+            </div>
+            ${setsHTML}
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+/**
  * ジムログ詳細モーダルの表示
  */
 function displayGymDetailModal(data) {
@@ -605,33 +662,7 @@ function displayGymDetailModal(data) {
         <!-- 種目別詳細 -->
         <div class="p-6">
           <h3 class="text-lg font-bold text-gray-800 mb-4">📋 実施種目</h3>
-          ${data.exercises.length > 0 ? `
-            <div class="space-y-3">
-              ${data.exercises.map(ex => `
-                <div class="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
-                  <div class="flex justify-between items-start">
-                    <div class="flex-1">
-                      <div class="font-bold text-gray-800">${ex.name}</div>
-                      <div class="text-sm text-gray-600 mt-1">
-                        ${ex.sets}セット
-                        ${ex.avgReps ? ` · 平均${ex.avgReps}回` : ''}
-                        ${ex.avgWeight ? ` · 平均${ex.avgWeight}kg` : ''}
-                      </div>
-                    </div>
-                  </div>
-                  ${ex.reps && ex.reps.length > 0 ? `
-                    <div class="mt-2 flex flex-wrap gap-2">
-                      ${ex.reps.map((rep, idx) => `
-                        <span class="bg-white px-3 py-1 rounded-full text-xs font-medium text-gray-700 border border-gray-300">
-                          ${rep}回${ex.weights && ex.weights[idx] ? ` × ${ex.weights[idx]}kg` : ''}
-                        </span>
-                      `).join('')}
-                    </div>
-                  ` : ''}
-                </div>
-              `).join('')}
-            </div>
-          ` : '<p class="text-gray-500 text-center py-8">種目データがありません</p>'}
+          ${generateExercisesList(data.exercises)}
         </div>
         
         <!-- 生ログ -->
