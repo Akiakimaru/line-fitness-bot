@@ -556,63 +556,6 @@ async function showGymDetail(date) {
 }
 
 /**
- * 種目リストHTMLを生成
- */
-function generateExercisesList(exercises) {
-  if (!exercises || exercises.length === 0) {
-    return '<p class="text-gray-500 text-center py-8">種目データがありません</p>';
-  }
-  
-  return `
-    <div class="space-y-3">
-      ${exercises.map(ex => {
-        const typeIcon = ex.type === 'cardio' ? '🏃' : ex.type === 'strength' ? '💪' : '🔹';
-        
-        // 有酸素運動の場合
-        if (ex.type === 'cardio') {
-          return `
-            <div class="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
-              <div class="font-bold text-gray-800">${typeIcon} ${ex.name}</div>
-              <div class="text-sm text-gray-600 mt-1">
-                ${ex.minutes || 0}分
-                ${ex.distance ? ` · ${ex.distance}km` : ''}
-                ${ex.calories ? ` · ${ex.calories}kcal` : ''}
-              </div>
-            </div>
-          `;
-        }
-        
-        // 筋トレの場合
-        let setsHTML = '';
-        if (ex.sets && ex.sets.length > 0) {
-          setsHTML = `
-            <div class="mt-2 flex flex-wrap gap-2">
-              ${ex.sets.map(set => `
-                <span class="bg-white px-3 py-1 rounded-full text-xs font-medium text-gray-700 border border-gray-300">
-                  ${set.reps || 0}回${set.weight ? ` × ${set.weight}kg` : ''}
-                </span>
-              `).join('')}
-            </div>
-          `;
-        }
-        
-        return `
-          <div class="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
-            <div class="font-bold text-gray-800">${typeIcon} ${ex.name}</div>
-            <div class="text-sm text-gray-600 mt-1">
-              ${ex.totalSets || 0}セット
-              ${ex.avgReps ? ` · 平均${ex.avgReps}回` : ''}
-              ${ex.avgWeight ? ` · 平均${ex.avgWeight}kg` : ''}
-            </div>
-            ${setsHTML}
-          </div>
-        `;
-      }).join('')}
-    </div>
-  `;
-}
-
-/**
  * ジムログ詳細モーダルの表示
  */
 function displayGymDetailModal(data) {
@@ -645,47 +588,25 @@ function displayGymDetailModal(data) {
           </div>
         </div>
         
-        <!-- サマリー -->
-        <div class="p-6 border-b border-gray-200">
-          <div class="grid grid-cols-2 gap-4">
-            <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4">
-              <div class="text-sm text-blue-600 font-medium">総セット数</div>
-              <div class="text-3xl font-bold text-blue-700 mt-1">${data.totalSets}</div>
-            </div>
-            <div class="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4">
-              <div class="text-sm text-purple-600 font-medium">総トレ時間</div>
-              <div class="text-3xl font-bold text-purple-700 mt-1">${data.totalMinutes}<span class="text-lg">分</span></div>
-            </div>
-          </div>
-        </div>
-        
-        <!-- 種目別詳細 -->
-        <div class="p-6">
-          <h3 class="text-lg font-bold text-gray-800 mb-4">📋 実施種目</h3>
-          ${generateExercisesList(data.exercises)}
-        </div>
-        
-        <!-- 生ログ -->
+        <!-- 記録詳細 -->
         ${data.logs.length > 0 ? `
-          <div class="p-6 bg-gray-50 rounded-b-2xl">
-            <details class="cursor-pointer">
-              <summary class="text-sm font-medium text-gray-700 hover:text-gray-900">📝 記録詳細を表示</summary>
-              <div class="mt-4 space-y-3">
-                ${data.logs.map((log, idx) => `
-                  <div class="bg-white rounded-lg p-4 border border-gray-200">
-                    <div class="text-xs text-gray-500 mb-2">記録${idx + 1} - ${new Date(log.dateTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</div>
-                    <div class="text-sm text-gray-800 whitespace-pre-wrap font-mono">${log.text}</div>
-                    ${log.meta && (log.meta.sets || log.meta.minutes) ? `
-                      <div class="text-xs text-gray-600 mt-2">
-                        ${log.meta.sets ? `${log.meta.sets}セット` : ''} ${log.meta.minutes ? `${log.meta.minutes}分` : ''}
-                      </div>
-                    ` : ''}
+          <div class="p-6">
+            <div class="space-y-4">
+              ${data.logs.map((log, idx) => `
+                <div class="bg-gradient-to-r from-gray-50 to-white rounded-xl p-5 border border-gray-200 shadow-sm">
+                  <div class="text-xs text-gray-500 mb-3 font-medium">
+                    ${data.logs.length > 1 ? `記録${idx + 1} · ` : ''}${new Date(log.dateTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
                   </div>
-                `).join('')}
-              </div>
-            </details>
+                  <div class="text-base leading-relaxed text-gray-800 whitespace-pre-wrap" style="font-family: 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'メイリオ', sans-serif;">${log.text}</div>
+                </div>
+              `).join('')}
+            </div>
           </div>
-        ` : ''}
+        ` : `
+          <div class="p-6">
+            <p class="text-gray-500 text-center py-8">記録がありません</p>
+          </div>
+        `}
       </div>
     </div>
   `;
