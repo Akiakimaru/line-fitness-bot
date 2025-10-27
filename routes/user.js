@@ -5,7 +5,7 @@ const { readRecentLogs } = require('../lib/sheets');
 const { userAuthMiddleware, verifyUserLink } = require('../lib/auth');
 const { getUserLogs, calculateUserSummary, successResponse, errorResponse } = require('../lib/api');
 const { dynamicDB } = require('../lib/pfcAnalyzer');
-const { getActiveShoppingPlan } = require('../lib/sheets');
+const { getActiveShoppingPlan, getRecentShoppingPlans } = require('../lib/sheets');
 const { convertToGymDate } = require('../lib/utils');
 
 /**
@@ -132,16 +132,21 @@ router.get("/user/summary", userAuthMiddleware, async (req, res) => {
  */
 router.get("/user/shopping-plan", userAuthMiddleware, async (req, res) => {
   try {
-    const { uid } = req.query;
+    const { uid, weeks } = req.query;
+    const weeksCount = Math.max(1, Math.min(8, parseInt(weeks || "4", 10) || 4));
     
-    // 最新の有効な買い出し計画を取得
-    const plan = await getActiveShoppingPlan(uid);
+    // 過去N週間分の買い出し計画を取得
+    const plans = await getRecentShoppingPlans(uid, weeksCount);
     
-    if (!plan) {
-      return res.json(successResponse({ plan: null }, '買い出し計画が見つかりません'));
+    if (!plans || plans.length === 0) {
+      return res.json(successResponse({ plans: [], count: 0 }, '買い出し計画が見つかりません'));
     }
     
-    res.json(successResponse({ plan }, '買い出し計画を取得しました'));
+    res.json(successResponse({ 
+      plans, 
+      count: plans.length,
+      weeksRequested: weeksCount 
+    }, `${plans.length}件の買い出し計画を取得しました`));
     
   } catch (error) {
     console.error('[user/shopping-plan] Error:', error);
